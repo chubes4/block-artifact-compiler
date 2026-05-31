@@ -64,6 +64,59 @@ $assert( 'main-index.html' === ( $fragment['input']['entry_path'] ?? '' ), 'frag
 $summary = bac_summarize_result( $messy );
 $assert( ( $summary['component_count'] ?? 0 ) > 0, 'summary exposes component count' );
 
+$rich = bac_compile_website_artifact(
+	array(
+		'schema'      => 'example/rich-website-bundle/v1',
+		'entrypoints' => array( 'pages/home.html', '../unsafe.html' ),
+		'files'       => array(
+			array(
+				'path'           => 'pages/home.html',
+				'content_base64' => base64_encode( '<main><h1>Rich bundle</h1></main>' ),
+				'mime_type'      => 'text/html',
+				'role'           => 'entry',
+			),
+			array(
+				'path'    => 'assets/app.css',
+				'content' => 'body{color:rebeccapurple}',
+				'type'    => 'text/css',
+				'intent'  => 'theme-style',
+			),
+			array(
+				'path'           => 'assets/logo.png',
+				'content_base64' => base64_encode( "\x89PNG\r\n\x1a\n" ),
+				'mime_type'      => 'image/png',
+				'role'           => 'brand-asset',
+			),
+			array(
+				'path'           => 'assets/bad.bin',
+				'content_base64' => 'not-valid-base64',
+			),
+		),
+	)
+);
+$assert( 'pages/home.html' === ( $rich['input']['entry_path'] ?? '' ), 'explicit entrypoint selects nested HTML entry' );
+$assert( in_array( 'pages/home.html', $rich['input']['entrypoints'] ?? array(), true ), 'entrypoints are normalized into input metadata' );
+$assert( 1 === ( $rich['input']['files_by_role']['brand-asset'] ?? 0 ), 'explicit asset role is preserved' );
+$assert( 1 === ( $rich['input']['files_by_mime']['image/png'] ?? 0 ), 'MIME counts are exposed' );
+$assert( 1 === ( $rich['input']['rejected_count'] ?? null ), 'invalid base64 file is rejected without blocking the bundle' );
+$has_unsafe_entrypoint = false;
+foreach ( $rich['diagnostics'] ?? array() as $diagnostic ) {
+	if ( 'unsafe_entrypoint_path' === ( $diagnostic['code'] ?? '' ) ) {
+		$has_unsafe_entrypoint = true;
+	}
+}
+$assert( $has_unsafe_entrypoint, 'unsafe entrypoint is diagnosed' );
+$asset_files = $rich['wordpress_artifacts']['files'] ?? array();
+$png_file    = null;
+foreach ( $asset_files as $asset_file ) {
+	if ( 'assets/logo.png' === ( $asset_file['path'] ?? '' ) ) {
+		$png_file = $asset_file;
+	}
+}
+$assert( is_array( $png_file ), 'binary asset appears in file manifest' );
+$assert( ! empty( $png_file['content_base64'] ?? '' ), 'binary asset keeps base64 payload' );
+$assert( true === ( $png_file['binary'] ?? null ), 'binary asset is marked binary' );
+
 $blocks = bac_compile_website_artifact(
 	array(
 		'generated_html' => '<main><h1>Block artifact page</h1></main>',
