@@ -357,9 +357,10 @@ class Block_Artifact_Compiler {
 		$files = array();
 		foreach ( $collection as $key => $file ) {
 			if ( is_array( $file ) ) {
-				$path = (string) ( $file['path'] ?? $file['name'] ?? $key );
-				$file['path'] = $path;
-				$file['source'] = (string) ( $file['source'] ?? $source );
+				$path_source    = $file['path'] ?? $file['name'] ?? $key;
+				$artifact_source = $file['source'] ?? $source;
+				$file['path']   = is_scalar( $path_source ) ? (string) $path_source : '';
+				$file['source'] = is_scalar( $artifact_source ) ? (string) $artifact_source : $source;
 				$files[] = $file;
 				continue;
 			}
