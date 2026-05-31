@@ -22,10 +22,14 @@ The contract accepts messy AI-generated artifact shapes and normalizes them into
 
 - `files`, `artifacts`, or `outputs` arrays
 - path-to-content maps
+- `content_base64` payloads for binary and encoded text files
+- MIME metadata through `mime_type`, `mime`, `media_type`, or MIME-shaped `type`
+- file `role`, `intent`, and `entrypoint` metadata
+- bundle `entrypoint`, `entry`, `main`, or `entrypoints` metadata
 - `html`, `generated_html`, `content`, or `body` strings
 - shorthand `css`, `styles`, `js`, `javascript`, or `script` strings
 
-It rejects absolute paths, `..` escapes, empty paths, oversized files, and over-budget bundles.
+It rejects absolute paths, `..` escapes, empty paths, invalid base64 payloads, oversized files, and over-budget bundles. Rejections are reported as diagnostics so permissive generators can keep producing complete website bundles while BAC normalizes the safe subset for WordPress materializers.
 
 BAC treats Markdown and MDX as source documents, not generic assets:
 
@@ -42,13 +46,14 @@ The compiler result returns:
 - component candidates from explicit `data-component` markers and repeated semantic class tokens
 - component candidates from MDX JSX references and generated JSX/TSX component files
 - post/page-like `documents` artifacts compiled from Markdown and MDX source documents
-- generated block type manifest placeholder
-- generated file manifest for non-entry artifact files, including uncompiled source documents with stable provenance
+- generated custom block type artifacts discovered from `block.json` roots
+- generated file manifest for non-entry artifact files, including MIME type, role, encoding, binary marker, `content_base64` for binary assets, and CSS/JS intent when present or inferred
+- generated file manifest provenance, including uncompiled source documents with stable source hashes
 - diagnostics
 - provenance
 - optional BFB conversion report
 
-Future compiler passes can promote component candidates into generated custom block artifacts without changing the caller boundary.
+Block type artifacts are normalized compiler output, not generation prompt constraints. Generation can produce loose files; the compiler identifies block roots, records diagnostics, and exposes a stable contract for downstream review and materialization.
 
 ## Public API
 
@@ -57,10 +62,19 @@ $result = bac_compile_website_artifact(
 	array(
 		'generated_html' => '<main><h1>Hello</h1></main>',
 		'css'            => 'main { max-width: 80rem; }',
+		'entrypoints'    => array( 'index.html' ),
 		'files' => array(
 			array(
 				'path'    => 'site.js',
 				'content' => 'console.log("preview behavior");',
+				'role'    => 'script',
+				'intent'  => 'behavior',
+			),
+			array(
+				'path'           => 'assets/logo.png',
+				'content_base64' => '...',
+				'mime_type'      => 'image/png',
+				'role'           => 'brand-asset',
 			),
 		),
 	)
@@ -77,7 +91,42 @@ array(
 	'wordpress_artifacts' => array(
 		'block_markup' => '<!-- wp:paragraph -->...',
 		'blocks'       => array(),
-		'block_types'  => array(),
+		'block_types'  => array(
+			array(
+				'schema'          => 'chubes4/wordpress-block-type-artifact/v1',
+				'name'            => 'acme/hero',
+				'slug'            => 'hero',
+				'directory'       => 'blocks/hero',
+				'block_json_path' => 'blocks/hero/block.json',
+				'block_json'      => array(...),
+				'metadata'        => array(
+					'apiVersion' => 3,
+					'title'      => 'Hero',
+					'category'   => 'design',
+					'attributes' => array(...),
+					'supports'   => array(...),
+				),
+				'assets'          => array(
+					'render'        => array(),
+					'editor_script' => array(),
+					'script'        => array(),
+					'view_script'   => array(),
+					'editor_style'  => array(),
+					'style'         => array(),
+					'view_style'    => array(),
+				),
+				'dependencies'    => array(
+					'declared'    => array(...),
+					'asset_files' => array(),
+				),
+				'provenance'      => array(
+					'source'      => 'files',
+					'source_hash' => '...',
+					'files'       => array(...),
+				),
+				'files'           => array(),
+			),
+		),
 		'components'   => array(),
 		'files'        => array(),
 	),

@@ -100,4 +100,107 @@ $assert( 'main-index.html' === ( $fragment['input']['entry_path'] ?? '' ), 'frag
 $summary = bac_summarize_result( $messy );
 $assert( ( $summary['component_count'] ?? 0 ) > 0, 'summary exposes component count' );
 
+$rich = bac_compile_website_artifact(
+	array(
+		'schema'      => 'example/rich-website-bundle/v1',
+		'entrypoints' => array( 'pages/home.html', '../unsafe.html' ),
+		'files'       => array(
+			array(
+				'path'           => 'pages/home.html',
+				'content_base64' => base64_encode( '<main><h1>Rich bundle</h1></main>' ),
+				'mime_type'      => 'text/html',
+				'role'           => 'entry',
+			),
+			array(
+				'path'    => 'assets/app.css',
+				'content' => 'body{color:rebeccapurple}',
+				'type'    => 'text/css',
+				'intent'  => 'theme-style',
+			),
+			array(
+				'path'           => 'assets/logo.png',
+				'content_base64' => base64_encode( "\x89PNG\r\n\x1a\n" ),
+				'mime_type'      => 'image/png',
+				'role'           => 'brand-asset',
+			),
+			array(
+				'path'           => 'assets/bad.bin',
+				'content_base64' => 'not-valid-base64',
+			),
+		),
+	)
+);
+$assert( 'pages/home.html' === ( $rich['input']['entry_path'] ?? '' ), 'explicit entrypoint selects nested HTML entry' );
+$assert( in_array( 'pages/home.html', $rich['input']['entrypoints'] ?? array(), true ), 'entrypoints are normalized into input metadata' );
+$assert( 1 === ( $rich['input']['files_by_role']['brand-asset'] ?? 0 ), 'explicit asset role is preserved' );
+$assert( 1 === ( $rich['input']['files_by_mime']['image/png'] ?? 0 ), 'MIME counts are exposed' );
+$assert( 1 === ( $rich['input']['rejected_count'] ?? null ), 'invalid base64 file is rejected without blocking the bundle' );
+$has_unsafe_entrypoint = false;
+foreach ( $rich['diagnostics'] ?? array() as $diagnostic ) {
+	if ( 'unsafe_entrypoint_path' === ( $diagnostic['code'] ?? '' ) ) {
+		$has_unsafe_entrypoint = true;
+	}
+}
+$assert( $has_unsafe_entrypoint, 'unsafe entrypoint is diagnosed' );
+$asset_files = $rich['wordpress_artifacts']['files'] ?? array();
+$png_file    = null;
+foreach ( $asset_files as $asset_file ) {
+	if ( 'assets/logo.png' === ( $asset_file['path'] ?? '' ) ) {
+		$png_file = $asset_file;
+	}
+}
+$assert( is_array( $png_file ), 'binary asset appears in file manifest' );
+$assert( ! empty( $png_file['content_base64'] ?? '' ), 'binary asset keeps base64 payload' );
+$assert( true === ( $png_file['binary'] ?? null ), 'binary asset is marked binary' );
+
+$blocks = bac_compile_website_artifact(
+	array(
+		'generated_html' => '<main><h1>Block artifact page</h1></main>',
+		'files'          => array(
+			'blocks/hero/block.json'       => wp_json_encode(
+				array(
+					'apiVersion'   => 3,
+					'name'         => 'acme/hero',
+					'title'        => 'Hero',
+					'category'     => 'design',
+					'editorScript' => 'file:./index.js',
+					'viewScript'   => array( 'file:./view.js', 'wp-interactivity' ),
+					'style'        => 'file:./style.css',
+					'editorStyle'  => 'file:./editor.css',
+					'render'       => 'file:./render.php',
+					'attributes'   => array(
+						'headline' => array( 'type' => 'string' ),
+					),
+					'supports'     => array( 'align' => true ),
+				),
+				JSON_UNESCAPED_SLASHES
+			),
+			'blocks/hero/index.js'         => 'import metadata from "./block.json";',
+			'blocks/hero/index.asset.php'  => '<?php return array("dependencies" => array("wp-blocks"), "version" => "1");',
+			'blocks/hero/view.js'          => 'console.log("front");',
+			'blocks/hero/style.css'        => '.wp-block-acme-hero{padding:2rem}',
+			'blocks/hero/editor.css'       => '.wp-block-acme-hero{outline:1px solid}',
+			'blocks/hero/render.php'       => '<?php echo $content;',
+		),
+	)
+);
+$block_types = $blocks['wordpress_artifacts']['block_types'] ?? array();
+$assert( 1 === count( $block_types ), 'block.json roots are promoted into block type artifacts' );
+$hero = $block_types[0] ?? array();
+$assert( 'chubes4/wordpress-block-type-artifact/v1' === ( $hero['schema'] ?? '' ), 'block type exposes contract schema' );
+$assert( 'acme/hero' === ( $hero['name'] ?? '' ), 'block type preserves block.json name' );
+$assert( 'blocks/hero' === ( $hero['directory'] ?? '' ), 'block type exposes source directory' );
+$assert( 'blocks/hero/block.json' === ( $hero['block_json_path'] ?? '' ), 'block type exposes block.json path' );
+$assert( 3 === ( $hero['metadata']['apiVersion'] ?? null ), 'block metadata preserves apiVersion' );
+$assert( array( 'align' => true ) === ( $hero['metadata']['supports'] ?? null ), 'block metadata preserves supports' );
+$assert( 'blocks/hero/index.js' === ( $hero['assets']['editor_script'][0]['path'] ?? '' ), 'editor script file reference resolves to generated file' );
+$assert( 'wp-interactivity' === ( $hero['assets']['view_script'][1]['reference'] ?? '' ), 'script handles are preserved as dependencies/references' );
+$assert( 'blocks/hero/render.php' === ( $hero['assets']['render'][0]['path'] ?? '' ), 'render file reference resolves to generated file' );
+$assert( 'blocks/hero/index.asset.php' === ( $hero['dependencies']['asset_files'][0]['path'] ?? '' ), 'asset php dependency manifests are recorded' );
+$assert( ! empty( $hero['provenance']['source_hash'] ?? '' ), 'block type exposes provenance hash' );
+$assert( in_array( 'blocks/hero/style.css', $hero['provenance']['files'] ?? array(), true ), 'block provenance lists source files' );
+
+$summary = bac_summarize_result( $blocks );
+$assert( 1 === ( $summary['block_type_count'] ?? 0 ), 'summary exposes block type count' );
+
 fwrite( STDOUT, "contract smoke passed\n" );
