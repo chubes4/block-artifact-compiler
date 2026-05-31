@@ -51,6 +51,28 @@ $schema_less = bac_compile_website_artifact(
 $assert( 'schema-less.html' === ( $schema_less['input']['entry_path'] ?? '' ), 'bundles without schema still compile' );
 $assert( '' === ( $schema_less['input']['original_schema'] ?? null ), 'omitted bundle schema is preserved as empty original schema metadata' );
 
+$warnings = array();
+set_error_handler(
+	static function ( int $errno, string $errstr ) use ( &$warnings ): bool {
+		$warnings[] = $errstr;
+		return true;
+	}
+);
+$nested_source = bac_compile_website_artifact(
+	array(
+		'files' => array(
+			array(
+				'path'    => 'nested-source.html',
+				'content' => '<main><p>Nested source metadata.</p></main>',
+				'source'  => array( 'metadata' => 'object' ),
+			),
+		),
+	)
+);
+restore_error_handler();
+$assert( array() === $warnings, 'non-scalar file source metadata does not emit PHP warnings', implode( '; ', $warnings ) );
+$assert( 'nested-source.html' === ( $nested_source['input']['entry_path'] ?? '' ), 'non-scalar file source metadata still compiles' );
+
 $messy = bac_compile_website_artifact(
 	array(
 		'generated_html' => '<main><section class="hero"><h1>Messy</h1></section><article class="card product-card" data-component="Product Card">A</article><article class="card product-card">B</article></main>',
