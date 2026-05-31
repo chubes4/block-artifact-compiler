@@ -11,7 +11,7 @@
 class Block_Artifact_Compiler {
 
 	private const RESULT_SCHEMA = 'chubes4/block-artifact-compiler-result/v1';
-	private const INPUT_SCHEMA  = 'chubes4/website-artifact/v1';
+	private const INPUT_SCHEMA  = 'block-artifact-compiler/website-artifact/v1';
 
 	private const DEFAULT_MAX_FILES       = 200;
 	private const DEFAULT_MAX_FILE_BYTES  = 2097152;

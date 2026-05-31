@@ -16,6 +16,8 @@ Studio Web
 
 Input: a user-owned website artifact bundle.
 
+Canonical input schema: `block-artifact-compiler/website-artifact/v1`.
+
 Output: a WordPress-native artifact bundle.
 
 The contract accepts messy AI-generated artifact shapes and normalizes them into a bounded, safe envelope before lower-level conversion runs. It accepts:
@@ -60,6 +62,7 @@ Block type artifacts are normalized compiler output, not generation prompt const
 ```php
 $result = bac_compile_website_artifact(
 	array(
+		'schema'         => 'block-artifact-compiler/website-artifact/v1',
 		'generated_html' => '<main><h1>Hello</h1></main>',
 		'css'            => 'main { max-width: 80rem; }',
 		'entrypoints'    => array( 'index.html' ),
