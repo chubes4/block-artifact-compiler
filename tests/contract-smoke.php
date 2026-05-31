@@ -28,6 +28,7 @@ $result = bac_compile_website_artifact(
 );
 
 $assert( 'chubes4/block-artifact-compiler-result/v1' === ( $result['schema'] ?? '' ), 'result exposes schema' );
+$assert( 'block-artifact-compiler/website-artifact/v1' === ( $result['input']['schema'] ?? '' ), 'input metadata exposes canonical website artifact schema' );
 $assert( 'success_with_warnings' === ( $result['status'] ?? '' ), 'fallback status reflects missing BFB in smoke test', (string) ( $result['status'] ?? '' ) );
 $assert( 'index.html' === ( $result['input']['entry_path'] ?? '' ), 'entry path is captured' );
 $assert( str_contains( (string) ( $result['wordpress_artifacts']['block_markup'] ?? '' ), '<!-- wp:html -->' ), 'fallback block markup is produced' );
@@ -36,6 +37,19 @@ $assert( isset( $result['wordpress_artifacts']['components'] ) && is_array( $res
 
 $empty = bac_compile_website_artifact( array( 'files' => array() ) );
 $assert( 'failed' === ( $empty['status'] ?? '' ), 'missing HTML fails explicitly' );
+
+$schema_less = bac_compile_website_artifact(
+	array(
+		'files' => array(
+			array(
+				'path'    => 'schema-less.html',
+				'content' => '<main><p>No input schema required.</p></main>',
+			),
+		),
+	)
+);
+$assert( 'schema-less.html' === ( $schema_less['input']['entry_path'] ?? '' ), 'bundles without schema still compile' );
+$assert( '' === ( $schema_less['input']['original_schema'] ?? null ), 'omitted bundle schema is preserved as empty original schema metadata' );
 
 $messy = bac_compile_website_artifact(
 	array(
