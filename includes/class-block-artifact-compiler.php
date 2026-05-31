@@ -137,23 +137,18 @@ class Block_Artifact_Compiler {
 	 * @return array{serialized_blocks:string,blocks:array,diagnostics:array<int,array<string,mixed>>,report:array<string,mixed>}
 	 */
 	private function convert_html_to_blocks( string $html, array $options ): array {
-		if ( function_exists( 'bfb_conversion_report' ) ) {
-			$report = bfb_conversion_report( $html, 'html', $options );
-			return array(
-				'serialized_blocks' => isset( $report['serialized_blocks'] ) ? (string) $report['serialized_blocks'] : '',
-				'blocks'            => array(),
-				'diagnostics'       => isset( $report['diagnostics'] ) && is_array( $report['diagnostics'] ) ? $report['diagnostics'] : array(),
-				'report'            => $report,
-			);
-		}
-
 		if ( function_exists( 'bfb_convert' ) ) {
 			$block_markup = (string) bfb_convert( $html, 'html', 'blocks', $options );
+			$report       = array( 'status' => '' === trim( $block_markup ) ? 'failed' : 'success_native' );
+			if ( ! empty( $options['include_bfb_report'] ) && function_exists( 'bfb_conversion_report' ) ) {
+				$report = bfb_conversion_report( $html, 'html', $options );
+			}
+
 			return array(
 				'serialized_blocks' => $block_markup,
 				'blocks'            => array(),
-				'diagnostics'       => array(),
-				'report'            => array( 'status' => '' === trim( $block_markup ) ? 'failed' : 'success_native' ),
+				'diagnostics'       => isset( $report['diagnostics'] ) && is_array( $report['diagnostics'] ) ? $report['diagnostics'] : array(),
+				'report'            => $report,
 			);
 		}
 
