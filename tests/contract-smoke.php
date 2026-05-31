@@ -58,6 +58,42 @@ $assert( 1 === ( $messy['input']['files_by_kind']['css'] ?? 0 ), 'css shorthand 
 $assert( 1 === ( $messy['input']['files_by_kind']['js'] ?? 0 ), 'js file is normalized' );
 $assert( ! empty( $messy['wordpress_artifacts']['components'] ?? array() ), 'component candidates are detected' );
 
+$markdown = bac_compile_website_artifact(
+	array(
+		'files' => array(
+			'content/about.md'       => "---\ntitle: About Us\nslug: about\npost_type: page\ntags: [team, story]\n---\n# About\n\nPlain Markdown content.",
+			'content/changelog.markdown' => "---\ntitle: Changelog\npost_type: post\n---\n# Changes",
+			'assets/logo.bin'       => 'binary-ish',
+		),
+	)
+);
+$assert( 'success_with_warnings' === ( $markdown['status'] ?? '' ), 'markdown documents compile with fallback warnings when BFB is unavailable', (string) ( $markdown['status'] ?? '' ) );
+$assert( 2 === ( $markdown['input']['files_by_kind']['markdown'] ?? 0 ), 'md and markdown files are classified as markdown' );
+$assert( 1 === ( $markdown['input']['files_by_kind']['asset'] ?? 0 ), 'unknown assets remain assets' );
+$assert( 2 === count( $markdown['wordpress_artifacts']['documents'] ?? array() ), 'markdown source documents produce WordPress document artifacts' );
+$assert( 'about' === ( $markdown['wordpress_artifacts']['documents'][0]['slug'] ?? '' ), 'frontmatter slug is preserved' );
+$assert( 'About Us' === ( $markdown['wordpress_artifacts']['documents'][0]['title'] ?? '' ), 'frontmatter title is preserved' );
+$assert( str_contains( (string) ( $markdown['wordpress_artifacts']['documents'][0]['block_markup'] ?? '' ), '<!-- wp:html -->' ), 'markdown body is converted or preserved as block markup' );
+
+$mdx = bac_compile_website_artifact(
+	array(
+		'files' => array(
+			'pages/home.mdx'          => "---\ntitle: Home\nslug: home\n---\nimport Hero from '../components/Hero'\nimport { ProductGrid } from '../components/ProductGrid'\n\n# Welcome\n\n<Hero />\n<ProductGrid collection=\"featured\" />\n<MissingWidget />",
+			'components/Hero.jsx'     => 'export default function Hero() { return <section />; }',
+			'components/ProductGrid.tsx' => 'export function ProductGrid() { return <div />; }',
+		),
+	)
+);
+$assert( 1 === ( $mdx['input']['files_by_kind']['mdx'] ?? 0 ), 'mdx files are classified as mdx' );
+$assert( 1 === ( $mdx['input']['files_by_kind']['jsx'] ?? 0 ), 'jsx files are classified as jsx component sources' );
+$assert( 1 === ( $mdx['input']['files_by_kind']['tsx'] ?? 0 ), 'tsx files are classified as tsx component sources' );
+$assert( 'text/mdx' === ( $mdx['wordpress_artifacts']['files'][0]['mime_type'] ?? '' ), 'mdx files preserve BAC-local MIME type in file manifest' );
+$assert( 1 === count( $mdx['wordpress_artifacts']['documents'] ?? array() ), 'mdx source document produces a document artifact' );
+$assert( count( $mdx['wordpress_artifacts']['components'] ?? array() ) >= 3, 'mdx JSX components produce component candidates' );
+$assert( ! empty( array_filter( $mdx['wordpress_artifacts']['components'] ?? array(), static fn ( array $component ): bool => 'Hero' === ( $component['name'] ?? '' ) && 'components/Hero.jsx' === ( $component['resolved_path'] ?? '' ) ) ), 'mdx imports resolve to generated source files when present' );
+$assert( ! empty( array_filter( $mdx['wordpress_artifacts']['components'] ?? array(), static fn ( array $component ): bool => 'jsx-component-file' === ( $component['signal'] ?? '' ) && 'components/Hero.jsx' === ( $component['source'] ?? '' ) ) ), 'jsx source files produce component candidates' );
+$assert( ! empty( array_filter( $mdx['diagnostics'] ?? array(), static fn ( array $diagnostic ): bool => 'mdx_component_unresolved' === ( $diagnostic['code'] ?? '' ) ) ), 'unresolved mdx components emit diagnostics' );
+
 $fragment = bac_compile_fragment( '<div class="feature-card">Feature</div>', 'main:index.html' );
 $assert( 'main-index.html' === ( $fragment['input']['entry_path'] ?? '' ), 'fragment source is normalized to virtual path' );
 

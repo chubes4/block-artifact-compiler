@@ -27,13 +27,23 @@ The contract accepts messy AI-generated artifact shapes and normalizes them into
 
 It rejects absolute paths, `..` escapes, empty paths, oversized files, and over-budget bundles.
 
+BAC treats Markdown and MDX as source documents, not generic assets:
+
+- `.md` and `.markdown` normalize as `kind: markdown` with `text/markdown`
+- `.mdx` normalizes as `kind: mdx` with BAC-local MIME type `text/mdx`
+- frontmatter maps to WordPress document metadata such as title, slug, post type, excerpt, date, template, and taxonomy hints
+- Markdown bodies are converted through Block Format Bridge when available, with a core/html preservation fallback otherwise
+- MDX bodies are reduced to Markdown-compatible text where feasible, while JSX imports/components stay inspectable as candidates and diagnostics
+
 The compiler result returns:
 
 - serialized block markup
 - parsed blocks when WordPress parsing is available
 - component candidates from explicit `data-component` markers and repeated semantic class tokens
+- component candidates from MDX JSX references and generated JSX/TSX component files
+- post/page-like `documents` artifacts compiled from Markdown and MDX source documents
 - generated block type manifest placeholder
-- generated file manifest for non-entry artifact files
+- generated file manifest for non-entry artifact files, including uncompiled source documents with stable provenance
 - diagnostics
 - provenance
 - optional BFB conversion report
