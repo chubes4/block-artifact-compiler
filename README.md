@@ -36,13 +36,13 @@ The compiler result returns:
 - serialized block markup
 - parsed blocks when WordPress parsing is available
 - component candidates from explicit `data-component` markers and repeated semantic class tokens
-- generated block type manifest placeholder
+- generated custom block type artifacts discovered from `block.json` roots
 - generated file manifest for non-entry artifact files, including MIME type, role, encoding, binary marker, `content_base64` for binary assets, and CSS/JS intent when present or inferred
 - diagnostics
 - provenance
 - optional BFB conversion report
 
-Future compiler passes can promote component candidates into generated custom block artifacts without changing the caller boundary.
+Block type artifacts are normalized compiler output, not generation prompt constraints. Generation can produce loose files; the compiler identifies block roots, records diagnostics, and exposes a stable contract for downstream review and materialization.
 
 ## Public API
 
@@ -80,7 +80,42 @@ array(
 	'wordpress_artifacts' => array(
 		'block_markup' => '<!-- wp:paragraph -->...',
 		'blocks'       => array(),
-		'block_types'  => array(),
+		'block_types'  => array(
+			array(
+				'schema'          => 'chubes4/wordpress-block-type-artifact/v1',
+				'name'            => 'acme/hero',
+				'slug'            => 'hero',
+				'directory'       => 'blocks/hero',
+				'block_json_path' => 'blocks/hero/block.json',
+				'block_json'      => array(...),
+				'metadata'        => array(
+					'apiVersion' => 3,
+					'title'      => 'Hero',
+					'category'   => 'design',
+					'attributes' => array(...),
+					'supports'   => array(...),
+				),
+				'assets'          => array(
+					'render'        => array(),
+					'editor_script' => array(),
+					'script'        => array(),
+					'view_script'   => array(),
+					'editor_style'  => array(),
+					'style'         => array(),
+					'view_style'    => array(),
+				),
+				'dependencies'    => array(
+					'declared'    => array(...),
+					'asset_files' => array(),
+				),
+				'provenance'      => array(
+					'source'      => 'files',
+					'source_hash' => '...',
+					'files'       => array(...),
+				),
+				'files'           => array(),
+			),
+		),
 		'components'   => array(),
 		'files'        => array(),
 	),

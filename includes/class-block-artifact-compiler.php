@@ -43,6 +43,7 @@ class Block_Artifact_Compiler {
 
 		$diagnostics = array_merge( $diagnostics, $conversion['diagnostics'] );
 		$components  = $this->detect_components( $normalized, $entry_path );
+		$block_types = $this->build_block_types( $normalized, $diagnostics );
 		$files       = $this->wordpress_files_from_artifact( $normalized );
 
 		return array(
@@ -64,7 +65,7 @@ class Block_Artifact_Compiler {
 			'wordpress_artifacts' => array(
 				'block_markup' => $conversion['serialized_blocks'],
 				'blocks'       => $conversion['blocks'],
-				'block_types'  => array(),
+				'block_types'  => $block_types,
 				'components'   => $components,
 				'files'        => $files,
 			),
@@ -479,7 +480,249 @@ class Block_Artifact_Compiler {
 			}
 		);
 
-		return array_slice( array_values( $candidates ), 0, 25 );
+		return array_slice( $candidates, 0, 25 );
+	}
+
+	/**
+	 * Build generated custom block artifacts from block.json roots.
+	 *
+	 * @param array{files:array<int,array{path:string,content:string,kind:string,bytes:int,source:string}>} $artifact Normalized artifact.
+	 * @param array<int,array<string,mixed>> $diagnostics Diagnostics collected during compilation.
+	 * @return array<int,array<string,mixed>> Block type artifacts.
+	 */
+	private function build_block_types( array $artifact, array &$diagnostics ): array {
+		$block_types = array();
+		$block_roots = array();
+
+		foreach ( $artifact['files'] as $file ) {
+			if ( 'block.json' !== basename( $file['path'] ) ) {
+				continue;
+			}
+
+			$directory                 = dirname( $file['path'] );
+			$directory                 = '.' === $directory ? '' : $directory;
+			$block_roots[ $directory ] = $file;
+		}
+
+		foreach ( $block_roots as $directory => $block_json_file ) {
+			$decoded = json_decode( $block_json_file['content'], true );
+			if ( ! is_array( $decoded ) ) {
+				$decoded       = array();
+				$diagnostics[] = $this->diagnostic( 'invalid_block_json', 'warning', 'A generated block.json file could not be decoded.', array( 'path' => $block_json_file['path'] ) );
+			}
+
+			$name = isset( $decoded['name'] ) && is_string( $decoded['name'] ) ? trim( $decoded['name'] ) : '';
+			if ( '' === $name ) {
+				$name          = 'generated/' . ( '' === $directory ? 'block' : sanitize_key( basename( $directory ) ) );
+				$diagnostics[] = $this->diagnostic(
+					'block_json_missing_name',
+					'warning',
+					'A generated block.json file did not declare a name; a stable generated name was assigned.',
+					array(
+						'path' => $block_json_file['path'],
+						'name' => $name,
+					)
+				);
+			}
+
+			$block_files   = $this->files_under_directory( $artifact['files'], $directory );
+			$block_types[] = array(
+				'schema'          => 'chubes4/wordpress-block-type-artifact/v1',
+				'name'            => $name,
+				'slug'            => sanitize_key( basename( $name ) ),
+				'directory'       => $directory,
+				'block_json_path' => $block_json_file['path'],
+				'block_json'      => $decoded,
+				'metadata'        => $this->block_metadata_contract( $decoded ),
+				'assets'          => $this->block_asset_contract( $decoded, $block_files ),
+				'dependencies'    => $this->block_dependency_contract( $decoded, $block_files ),
+				'provenance'      => array(
+					'source'      => $block_json_file['source'],
+					'source_hash' => hash( 'sha256', $this->file_hash_payload( $block_files ) ),
+					'files'       => array_values( array_map( static fn ( array $file ): string => $file['path'], $block_files ) ),
+				),
+				'files'           => array_values(
+					array_map(
+						static function ( array $file ): array {
+							return array(
+								'path'  => $file['path'],
+								'kind'  => $file['kind'],
+								'bytes' => $file['bytes'],
+							);
+						},
+						$block_files
+					)
+				),
+			);
+		}
+
+		usort(
+			$block_types,
+			static function ( array $left, array $right ): int {
+				return strcmp( (string) $left['name'], (string) $right['name'] );
+			}
+		);
+
+		return $block_types;
+	}
+
+	/**
+	 * Return files that belong to a block root directory.
+	 *
+	 * @param array<int,array{path:string,content:string,kind:string,bytes:int,source:string}> $files Files.
+	 * @return array<int,array{path:string,content:string,kind:string,bytes:int,source:string}> Files.
+	 */
+	private function files_under_directory( array $files, string $directory ): array {
+		$matched = array();
+		$prefix  = '' === $directory ? '' : $directory . '/';
+		foreach ( $files as $file ) {
+			if ( '' === $prefix || str_starts_with( $file['path'], $prefix ) ) {
+				$matched[] = $file;
+			}
+		}
+
+		return $matched;
+	}
+
+	/**
+	 * Normalize block.json metadata into the block artifact contract.
+	 *
+	 * @param array<string,mixed> $block_json Decoded block.json.
+	 * @return array<string,mixed> Metadata contract.
+	 */
+	private function block_metadata_contract( array $block_json ): array {
+		$metadata = array();
+		foreach ( array( 'apiVersion', 'title', 'category', 'description', 'keywords', 'attributes', 'supports', 'usesContext', 'providesContext', 'textdomain', 'example', 'variations', 'parent', 'ancestor', 'allowedBlocks' ) as $key ) {
+			if ( array_key_exists( $key, $block_json ) ) {
+				$metadata[ $key ] = $block_json[ $key ];
+			}
+		}
+
+		return $metadata;
+	}
+
+	/**
+	 * Normalize render, editor, style, and script references from block.json.
+	 *
+	 * @param array<string,mixed> $block_json Decoded block.json.
+	 * @param array<int,array{path:string,content:string,kind:string,bytes:int,source:string}> $files Block files.
+	 * @return array<string,array<int,array<string,mixed>>> Asset contract.
+	 */
+	private function block_asset_contract( array $block_json, array $files ): array {
+		$assets = array(
+			'render'        => array(),
+			'editor_script' => array(),
+			'script'        => array(),
+			'view_script'   => array(),
+			'editor_style'  => array(),
+			'style'         => array(),
+			'view_style'    => array(),
+		);
+
+		foreach (
+			array(
+				'render'       => 'render',
+				'editorScript' => 'editor_script',
+				'script'       => 'script',
+				'viewScript'   => 'view_script',
+				'editorStyle'  => 'editor_style',
+				'style'        => 'style',
+				'viewStyle'    => 'view_style',
+			) as $source_field => $target_field
+		) {
+			foreach ( $this->normalize_asset_references( $block_json[ $source_field ] ?? null, $files, $source_field ) as $reference ) {
+				$assets[ $target_field ][] = $reference;
+			}
+		}
+
+		return $assets;
+	}
+
+	/**
+	 * Normalize block.json asset references while preserving handles and generated file paths.
+	 *
+	 * @param mixed $value Asset reference value.
+	 * @param array<int,array{path:string,content:string,kind:string,bytes:int,source:string}> $files Block files.
+	 * @return array<int,array<string,mixed>> Asset references.
+	 */
+	private function normalize_asset_references( mixed $value, array $files, string $source_field ): array {
+		$references = array();
+		$values     = is_array( $value ) ? array_values( $value ) : array( $value );
+		foreach ( $values as $item ) {
+			if ( ! is_string( $item ) || '' === trim( $item ) ) {
+				continue;
+			}
+
+			$item        = trim( $item );
+			$is_file_ref = str_starts_with( $item, 'file:' );
+			$relative    = $is_file_ref ? substr( $item, 5 ) : '';
+			$file        = $is_file_ref ? $this->find_block_file_by_relative_path( $files, $relative ) : null;
+
+			$reference = array(
+				'reference'    => $item,
+				'source_field' => $source_field,
+				'type'         => $is_file_ref ? 'file' : 'handle',
+			);
+			if ( is_array( $file ) ) {
+				$reference['path']  = $file['path'];
+				$reference['kind']  = $file['kind'];
+				$reference['bytes'] = $file['bytes'];
+			}
+
+			$references[] = $reference;
+		}
+
+		return $references;
+	}
+
+	/**
+	 * Return dependency references declared by block.json and generated .asset.php files.
+	 *
+	 * @param array<string,mixed> $block_json Decoded block.json.
+	 * @param array<int,array{path:string,content:string,kind:string,bytes:int,source:string}> $files Block files.
+	 * @return array<string,mixed> Dependency contract.
+	 */
+	private function block_dependency_contract( array $block_json, array $files ): array {
+		$declared = array();
+		foreach ( array( 'editorScript', 'script', 'viewScript', 'editorStyle', 'style', 'viewStyle' ) as $field ) {
+			if ( ! array_key_exists( $field, $block_json ) ) {
+				continue;
+			}
+			$declared[ $field ] = $block_json[ $field ];
+		}
+
+		$asset_files = array();
+		foreach ( $files as $file ) {
+			if ( str_ends_with( $file['path'], '.asset.php' ) ) {
+				$asset_files[] = array(
+					'path'  => $file['path'],
+					'kind'  => $file['kind'],
+					'bytes' => $file['bytes'],
+				);
+			}
+		}
+
+		return array(
+			'declared'    => $declared,
+			'asset_files' => $asset_files,
+		);
+	}
+
+	/**
+	 * Find a block-local generated file by its block.json file: reference.
+	 *
+	 * @param array<int,array{path:string,content:string,kind:string,bytes:int,source:string}> $files Block files.
+	 * @return array{path:string,content:string,kind:string,bytes:int,source:string}|null
+	 */
+	private function find_block_file_by_relative_path( array $files, string $relative_path ): ?array {
+		$relative_path = ltrim( str_replace( '\\', '/', $relative_path ), './' );
+		foreach ( $files as $file ) {
+			if ( basename( $file['path'] ) === $relative_path || str_ends_with( $file['path'], '/' . $relative_path ) ) {
+				return $file;
+			}
+		}
+
+		return null;
 	}
 
 	/**
@@ -874,8 +1117,17 @@ class Block_Artifact_Compiler {
 	 * @param array{files:array<int,array{path:string,content:string,kind:string,bytes:int,source:string}>} $artifact Normalized artifact.
 	 */
 	private function artifact_hash_payload( array $artifact ): string {
+		return $this->file_hash_payload( $artifact['files'] );
+	}
+
+	/**
+	 * Build a stable hash payload from normalized files.
+	 *
+	 * @param array<int,array{path:string,content:string,kind:string,bytes:int,source:string}> $files Files.
+	 */
+	private function file_hash_payload( array $files ): string {
 		$payload = '';
-		foreach ( $artifact['files'] as $file ) {
+		foreach ( $files as $file ) {
 			$content = isset( $file['content_base64'] ) ? (string) $file['content_base64'] : (string) $file['content'];
 			$payload .= $file['path'] . "\0" . $file['kind'] . "\0" . ( $file['mime_type'] ?? '' ) . "\0" . $content . "\0";
 		}
