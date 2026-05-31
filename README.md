@@ -99,3 +99,9 @@ Block Artifact Compiler does not orchestrate agents, import WordPress sites, or 
 ```bash
 composer test
 ```
+
+## Homeboy Test
+
+```bash
+homeboy test --path /path/to/block-artifact-compiler
+```
