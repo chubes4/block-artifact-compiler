@@ -51,11 +51,14 @@ class Block_Artifact_Compiler {
 			'input'               => array(
 				'schema'          => self::INPUT_SCHEMA,
 				'entry_path'      => $entry_path,
+				'entrypoints'     => $normalized['entrypoints'],
 				'file_count'      => count( $normalized['files'] ),
 				'accepted_count'  => count( $normalized['files'] ),
 				'rejected_count'  => $normalized['rejected_count'],
 				'bytes'           => $normalized['bytes'],
 				'files_by_kind'   => $this->count_files_by_kind( $normalized['files'] ),
+				'files_by_role'   => $this->count_files_by_field( $normalized['files'], 'role' ),
+				'files_by_mime'   => $this->count_files_by_field( $normalized['files'], 'mime_type' ),
 				'original_schema' => (string) ( $artifact['schema'] ?? '' ),
 			),
 			'wordpress_artifacts' => array(
@@ -129,7 +132,7 @@ class Block_Artifact_Compiler {
 	 *
 	 * @param array<string,mixed> $artifact Raw artifact.
 	 * @param array<string,mixed> $options  Compiler options.
-	 * @return array{files:array<int,array{path:string,content:string,kind:string,bytes:int,source:string}>,diagnostics:array<int,array<string,mixed>>,rejected_count:int,bytes:int}
+	 * @return array{files:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>,rejected_count:int,bytes:int,entrypoints:array<int,string>}
 	 */
 	private function normalize_artifact( array $artifact, array $options ): array {
 		$limits = array(
@@ -137,12 +140,23 @@ class Block_Artifact_Compiler {
 			'max_file_bytes' => max( 1, (int) ( $options['max_file_bytes'] ?? self::DEFAULT_MAX_FILE_BYTES ) ),
 			'max_total_bytes' => max( 1, (int) ( $options['max_total_bytes'] ?? self::DEFAULT_MAX_TOTAL_BYTES ) ),
 		);
-		$raw_files   = $this->extract_raw_files( $artifact );
+		$raw_entrypoints = $this->extract_entrypoints( $artifact );
+		$raw_files       = $this->extract_raw_files( $artifact );
 		$files       = array();
 		$diagnostics = array();
 		$total_bytes = 0;
 		$rejected    = 0;
 		$seen_paths  = array();
+		$entrypoints = array();
+
+		foreach ( $raw_entrypoints as $entrypoint ) {
+			$path = $this->safe_relative_path( $entrypoint );
+			if ( '' === $path ) {
+				$diagnostics[] = $this->diagnostic( 'unsafe_entrypoint_path', 'warning', 'An artifact entrypoint was ignored because its path is empty, absolute, or escapes the artifact root.', array( 'path' => $entrypoint ) );
+				continue;
+			}
+			$entrypoints[ $path ] = true;
+		}
 
 		foreach ( $raw_files as $index => $file ) {
 			if ( count( $files ) >= $limits['max_files'] ) {
@@ -158,8 +172,15 @@ class Block_Artifact_Compiler {
 				continue;
 			}
 
-			$content = $this->normalize_content( $file['content'] ?? '' );
-			$bytes   = strlen( $content );
+			$payload = $this->normalize_file_payload( $file, $path );
+			$diagnostics = array_merge( $diagnostics, $payload['diagnostics'] );
+			if ( ! $payload['accepted'] ) {
+				++$rejected;
+				continue;
+			}
+
+			$content = $payload['content'];
+			$bytes   = $payload['bytes'];
 			if ( $bytes > $limits['max_file_bytes'] ) {
 				++$rejected;
 				$diagnostics[] = $this->diagnostic( 'artifact_file_too_large', 'warning', 'An artifact file was ignored because it exceeds the per-file byte limit.', array( 'path' => $path, 'bytes' => $bytes, 'max_file_bytes' => $limits['max_file_bytes'] ) );
@@ -175,14 +196,42 @@ class Block_Artifact_Compiler {
 			$deduped_path = $this->dedupe_path( $path, $seen_paths );
 			$seen_paths[ $deduped_path ] = true;
 			$total_bytes += $bytes;
+			$mime_type   = $this->normalize_mime_type( (string) ( $file['mime_type'] ?? $file['mime'] ?? $file['media_type'] ?? ( str_contains( (string) ( $file['type'] ?? '' ), '/' ) ? $file['type'] : '' ) ), $deduped_path );
+			$kind        = $this->normalize_kind( (string) ( $file['kind'] ?? $file['type'] ?? '' ), $deduped_path, $content, $mime_type );
+			$is_binary   = $payload['binary'] || $this->is_binary_mime_type( $mime_type );
+			$role        = $this->normalize_role( (string) ( $file['role'] ?? '' ), $kind, $mime_type, $deduped_path );
+			$intent      = $this->normalize_intent( (string) ( $file['intent'] ?? '' ), $kind, $role );
+			$is_entry    = ! empty( $entrypoints[ $deduped_path ] ) || ! empty( $file['entrypoint'] ) || 'entry' === $role;
+			$content_base64 = $payload['content_base64'];
+			if ( $is_binary && '' === $content_base64 ) {
+				$content_base64 = base64_encode( $content );
+			}
 
-			$files[] = array(
+			if ( $is_entry ) {
+				$entrypoints[ $deduped_path ] = true;
+			}
+
+			$normalized_file = array(
 				'path'    => $deduped_path,
 				'content' => $content,
-				'kind'    => $this->normalize_kind( (string) ( $file['kind'] ?? '' ), $deduped_path, $content ),
+				'kind'    => $kind,
 				'bytes'   => $bytes,
 				'source'  => (string) ( $file['source'] ?? 'artifact' ),
+				'mime_type' => $mime_type,
+				'role'    => $role,
+				'encoding' => $payload['encoding'],
+				'binary'  => $is_binary,
+				'entrypoint' => $is_entry,
 			);
+
+			if ( '' !== $content_base64 ) {
+				$normalized_file['content_base64'] = $content_base64;
+			}
+			if ( '' !== $intent ) {
+				$normalized_file['intent'] = $intent;
+			}
+
+			$files[] = $normalized_file;
 		}
 
 		return array(
@@ -190,6 +239,7 @@ class Block_Artifact_Compiler {
 			'diagnostics'    => $this->dedupe_diagnostics( $diagnostics ),
 			'rejected_count' => $rejected,
 			'bytes'          => $total_bytes,
+			'entrypoints'    => array_keys( $entrypoints ),
 		);
 	}
 
@@ -233,6 +283,31 @@ class Block_Artifact_Compiler {
 	}
 
 	/**
+	 * Extract explicit bundle entrypoints from common artifact shapes.
+	 *
+	 * @param array<string,mixed> $artifact Raw artifact.
+	 * @return array<int,string> Entrypoint paths.
+	 */
+	private function extract_entrypoints( array $artifact ): array {
+		$entrypoints = array();
+		foreach ( array( 'entrypoint', 'entry', 'main' ) as $key ) {
+			if ( isset( $artifact[ $key ] ) && is_string( $artifact[ $key ] ) ) {
+				$entrypoints[] = $artifact[ $key ];
+			}
+		}
+
+		if ( isset( $artifact['entrypoints'] ) && is_array( $artifact['entrypoints'] ) ) {
+			foreach ( $artifact['entrypoints'] as $entrypoint ) {
+				if ( is_string( $entrypoint ) ) {
+					$entrypoints[] = $entrypoint;
+				}
+			}
+		}
+
+		return array_values( array_unique( $entrypoints ) );
+	}
+
+	/**
 	 * Normalize a list or path=>content map into file entries.
 	 *
 	 * @param array<mixed> $collection File collection.
@@ -244,12 +319,9 @@ class Block_Artifact_Compiler {
 		foreach ( $collection as $key => $file ) {
 			if ( is_array( $file ) ) {
 				$path = (string) ( $file['path'] ?? $file['name'] ?? $key );
-				$files[] = array(
-					'path'    => $path,
-					'content' => $file['content'] ?? $file['body'] ?? $file['text'] ?? '',
-					'kind'    => $file['kind'] ?? $file['type'] ?? '',
-					'source'  => $source,
-				);
+				$file['path'] = $path;
+				$file['source'] = (string) ( $file['source'] ?? $source );
+				$files[] = $file;
 				continue;
 			}
 
@@ -270,21 +342,30 @@ class Block_Artifact_Compiler {
 	/**
 	 * Return the HTML entry file.
 	 *
-	 * @param array{files:array<int,array{path:string,content:string,kind:string,bytes:int,source:string}>} $artifact Normalized artifact.
-	 * @return array{path:string,content:string,kind:string,bytes:int,source:string}|null
+	 * @param array{files:array<int,array<string,mixed>>,entrypoints?:array<int,string>} $artifact Normalized artifact.
+	 * @return array<string,mixed>|null
 	 */
 	private function entry_file( array $artifact ): ?array {
+		$entrypoints = isset( $artifact['entrypoints'] ) && is_array( $artifact['entrypoints'] ) ? $artifact['entrypoints'] : array();
+		foreach ( $entrypoints as $entrypoint ) {
+			foreach ( $artifact['files'] as $file ) {
+				if ( $entrypoint === $file['path'] && 'html' === $file['kind'] && empty( $file['binary'] ) ) {
+					return $file;
+				}
+			}
+		}
+
 		$preferred = array( 'index.html', 'index.htm', 'static-site/index.html', 'public/index.html' );
 		foreach ( $preferred as $path ) {
 			foreach ( $artifact['files'] as $file ) {
-				if ( $path === strtolower( $file['path'] ) ) {
+				if ( $path === strtolower( (string) $file['path'] ) && empty( $file['binary'] ) ) {
 					return $file;
 				}
 			}
 		}
 
 		foreach ( $artifact['files'] as $file ) {
-			if ( 'html' === $file['kind'] ) {
+			if ( 'html' === $file['kind'] && empty( $file['binary'] ) ) {
 				return $file;
 			}
 		}
@@ -338,7 +419,7 @@ class Block_Artifact_Compiler {
 	/**
 	 * Build component candidates from explicit markers and repeated class tokens.
 	 *
-	 * @param array{files:array<int,array{path:string,content:string,kind:string,bytes:int,source:string}>} $artifact Normalized artifact.
+	 * @param array{files:array<int,array<string,mixed>>} $artifact Normalized artifact.
 	 * @param string $entry_path Entry path.
 	 * @return array<int,array<string,mixed>> Component candidates.
 	 */
@@ -404,7 +485,7 @@ class Block_Artifact_Compiler {
 	/**
 	 * Return non-entry files that SSI or another materializer may consume later.
 	 *
-	 * @param array{files:array<int,array{path:string,content:string,kind:string,bytes:int,source:string}>} $artifact Normalized artifact.
+	 * @param array{files:array<int,array<string,mixed>>} $artifact Normalized artifact.
 	 * @return array<int,array<string,mixed>> Files.
 	 */
 	private function wordpress_files_from_artifact( array $artifact ): array {
@@ -414,12 +495,26 @@ class Block_Artifact_Compiler {
 				continue;
 			}
 
-			$files[] = array(
+			$manifest_file = array(
 				'path'    => $file['path'],
 				'kind'    => $file['kind'],
 				'bytes'   => $file['bytes'],
-				'content' => $file['content'],
+				'mime_type' => $file['mime_type'],
+				'role'    => $file['role'],
+				'encoding' => $file['encoding'],
+				'binary'  => $file['binary'],
 			);
+
+			if ( ! empty( $file['intent'] ) ) {
+				$manifest_file['intent'] = $file['intent'];
+			}
+			if ( ! empty( $file['content_base64'] ) ) {
+				$manifest_file['content_base64'] = $file['content_base64'];
+			} else {
+				$manifest_file['content'] = $file['content'];
+			}
+
+			$files[] = $manifest_file;
 		}
 
 		return $files;
@@ -465,12 +560,77 @@ class Block_Artifact_Compiler {
 	}
 
 	/**
+	 * Normalize file payloads from text or base64 content fields.
+	 *
+	 * @param array<string,mixed> $file Raw file entry.
+	 * @return array{accepted:bool,content:string,content_base64:string,encoding:string,binary:bool,bytes:int,diagnostics:array<int,array<string,mixed>>}
+	 */
+	private function normalize_file_payload( array $file, string $path ): array {
+		$diagnostics = array();
+		if ( isset( $file['content_base64'] ) && is_string( $file['content_base64'] ) ) {
+			$base64  = preg_replace( '/\s+/', '', $file['content_base64'] ) ?? '';
+			$decoded = base64_decode( $base64, true );
+			if ( false === $decoded ) {
+				return array(
+					'accepted'       => false,
+					'content'        => '',
+					'content_base64' => '',
+					'encoding'       => 'base64',
+					'binary'         => false,
+					'bytes'          => 0,
+					'diagnostics'    => array( $this->diagnostic( 'invalid_base64_content', 'warning', 'An artifact file was ignored because content_base64 is not valid base64.', array( 'path' => $path ) ) ),
+				);
+			}
+
+			$is_binary = $this->looks_binary( $decoded );
+			if ( ! $is_binary && isset( $file['content'] ) && is_string( $file['content'] ) && '' !== $file['content'] && $file['content'] !== $decoded ) {
+				$diagnostics[] = $this->diagnostic( 'content_base64_preferred', 'info', 'Both content and content_base64 were provided; decoded content_base64 was used as the canonical payload.', array( 'path' => $path ) );
+			}
+
+			return array(
+				'accepted'       => true,
+				'content'        => $is_binary ? '' : $decoded,
+				'content_base64' => $base64,
+				'encoding'       => 'base64',
+				'binary'         => $is_binary,
+				'bytes'          => strlen( $decoded ),
+				'diagnostics'    => $diagnostics,
+			);
+		}
+
+		$content = $this->normalize_content( $file['content'] ?? $file['body'] ?? $file['text'] ?? '' );
+		return array(
+			'accepted'       => true,
+			'content'        => $content,
+			'content_base64' => '',
+			'encoding'       => 'text',
+			'binary'         => false,
+			'bytes'          => strlen( $content ),
+			'diagnostics'    => array(),
+		);
+	}
+
+	/**
 	 * Normalize file kind from explicit kind, path, and content.
 	 */
-	private function normalize_kind( string $kind, string $path, string $content ): string {
+	private function normalize_kind( string $kind, string $path, string $content, string $mime_type = '' ): string {
 		$kind = sanitize_key( $kind );
 		if ( in_array( $kind, array( 'html', 'css', 'js', 'json', 'markdown', 'asset', 'blocks' ), true ) ) {
 			return $kind;
+		}
+		if ( str_contains( $mime_type, '/' ) ) {
+			if ( str_contains( $mime_type, 'html' ) ) {
+				return 'html';
+			}
+			if ( 'text/css' === $mime_type ) {
+				return 'css';
+			}
+			if ( in_array( $mime_type, array( 'application/javascript', 'text/javascript', 'application/ecmascript', 'text/ecmascript' ), true ) ) {
+				return 'js';
+			}
+			if ( 'application/json' === $mime_type ) {
+				return 'json';
+			}
 		}
 
 		$extension = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
@@ -482,6 +642,103 @@ class Block_Artifact_Compiler {
 			'md', 'markdown'    => 'markdown',
 			default             => str_contains( $content, '<!-- wp:' ) ? 'blocks' : 'asset',
 		};
+	}
+
+	/**
+	 * Normalize or infer a MIME type.
+	 */
+	private function normalize_mime_type( string $mime_type, string $path ): string {
+		$mime_type = strtolower( trim( $mime_type ) );
+		if ( preg_match( '#^[a-z0-9.+-]+/[a-z0-9.+-]+$#', $mime_type ) ) {
+			return $mime_type;
+		}
+
+		return match ( strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ) ) {
+			'html', 'htm'       => 'text/html',
+			'css'               => 'text/css',
+			'js', 'mjs'          => 'application/javascript',
+			'json'              => 'application/json',
+			'md', 'markdown'    => 'text/markdown',
+			'txt'               => 'text/plain',
+			'svg'               => 'image/svg+xml',
+			'png'               => 'image/png',
+			'jpg', 'jpeg'       => 'image/jpeg',
+			'gif'               => 'image/gif',
+			'webp'              => 'image/webp',
+			'avif'              => 'image/avif',
+			'woff'              => 'font/woff',
+			'woff2'             => 'font/woff2',
+			'ttf'               => 'font/ttf',
+			'otf'               => 'font/otf',
+			default             => 'application/octet-stream',
+		};
+	}
+
+	/**
+	 * Normalize a file role without making policy decisions about generated output.
+	 */
+	private function normalize_role( string $role, string $kind, string $mime_type, string $path ): string {
+		$role = sanitize_key( $role );
+		if ( '' !== $role ) {
+			return $role;
+		}
+
+		if ( 'html' === $kind ) {
+			return preg_match( '#(^|/)index\.html?$#i', $path ) ? 'entry' : 'document';
+		}
+		if ( 'css' === $kind ) {
+			return 'stylesheet';
+		}
+		if ( 'js' === $kind ) {
+			return 'script';
+		}
+		if ( str_starts_with( $mime_type, 'image/' ) ) {
+			return 'image';
+		}
+		if ( str_starts_with( $mime_type, 'font/' ) ) {
+			return 'font';
+		}
+		if ( in_array( $kind, array( 'json', 'markdown' ), true ) ) {
+			return 'data';
+		}
+
+		return 'asset';
+	}
+
+	/**
+	 * Normalize CSS/JS intent metadata.
+	 */
+	private function normalize_intent( string $intent, string $kind, string $role ): string {
+		$intent = sanitize_key( $intent );
+		if ( '' !== $intent ) {
+			return $intent;
+		}
+		if ( 'css' === $kind || 'stylesheet' === $role ) {
+			return 'style';
+		}
+		if ( 'js' === $kind || 'script' === $role ) {
+			return 'behavior';
+		}
+
+		return '';
+	}
+
+	/**
+	 * Detect binary payloads conservatively.
+	 */
+	private function looks_binary( string $content ): bool {
+		return str_contains( $content, "\0" );
+	}
+
+	/**
+	 * Return whether a MIME type should be treated as binary in result manifests.
+	 */
+	private function is_binary_mime_type( string $mime_type ): bool {
+		if ( str_starts_with( $mime_type, 'text/' ) ) {
+			return false;
+		}
+
+		return ! in_array( $mime_type, array( 'application/json', 'application/javascript', 'image/svg+xml' ), true );
 	}
 
 	/**
@@ -527,9 +784,23 @@ class Block_Artifact_Compiler {
 	 * @return array<string,int>
 	 */
 	private function count_files_by_kind( array $files ): array {
+		return $this->count_files_by_field( $files, 'kind' );
+	}
+
+	/**
+	 * Count normalized files by a manifest field.
+	 *
+	 * @param array<int,array<string,mixed>> $files Files.
+	 * @return array<string,int>
+	 */
+	private function count_files_by_field( array $files, string $field ): array {
 		$counts = array();
 		foreach ( $files as $file ) {
-			$counts[ $file['kind'] ] = ( $counts[ $file['kind'] ] ?? 0 ) + 1;
+			$value = isset( $file[ $field ] ) ? (string) $file[ $field ] : '';
+			if ( '' === $value ) {
+				continue;
+			}
+			$counts[ $value ] = ( $counts[ $value ] ?? 0 ) + 1;
 		}
 		ksort( $counts );
 
@@ -605,7 +876,8 @@ class Block_Artifact_Compiler {
 	private function artifact_hash_payload( array $artifact ): string {
 		$payload = '';
 		foreach ( $artifact['files'] as $file ) {
-			$payload .= $file['path'] . "\0" . $file['kind'] . "\0" . $file['content'] . "\0";
+			$content = isset( $file['content_base64'] ) ? (string) $file['content_base64'] : (string) $file['content'];
+			$payload .= $file['path'] . "\0" . $file['kind'] . "\0" . ( $file['mime_type'] ?? '' ) . "\0" . $content . "\0";
 		}
 
 		return $payload;

@@ -22,10 +22,14 @@ The contract accepts messy AI-generated artifact shapes and normalizes them into
 
 - `files`, `artifacts`, or `outputs` arrays
 - path-to-content maps
+- `content_base64` payloads for binary and encoded text files
+- MIME metadata through `mime_type`, `mime`, `media_type`, or MIME-shaped `type`
+- file `role`, `intent`, and `entrypoint` metadata
+- bundle `entrypoint`, `entry`, `main`, or `entrypoints` metadata
 - `html`, `generated_html`, `content`, or `body` strings
 - shorthand `css`, `styles`, `js`, `javascript`, or `script` strings
 
-It rejects absolute paths, `..` escapes, empty paths, oversized files, and over-budget bundles.
+It rejects absolute paths, `..` escapes, empty paths, invalid base64 payloads, oversized files, and over-budget bundles. Rejections are reported as diagnostics so permissive generators can keep producing complete website bundles while BAC normalizes the safe subset for WordPress materializers.
 
 The compiler result returns:
 
@@ -33,7 +37,7 @@ The compiler result returns:
 - parsed blocks when WordPress parsing is available
 - component candidates from explicit `data-component` markers and repeated semantic class tokens
 - generated block type manifest placeholder
-- generated file manifest for non-entry artifact files
+- generated file manifest for non-entry artifact files, including MIME type, role, encoding, binary marker, `content_base64` for binary assets, and CSS/JS intent when present or inferred
 - diagnostics
 - provenance
 - optional BFB conversion report
@@ -47,10 +51,19 @@ $result = bac_compile_website_artifact(
 	array(
 		'generated_html' => '<main><h1>Hello</h1></main>',
 		'css'            => 'main { max-width: 80rem; }',
+		'entrypoints'    => array( 'index.html' ),
 		'files' => array(
 			array(
 				'path'    => 'site.js',
 				'content' => 'console.log("preview behavior");',
+				'role'    => 'script',
+				'intent'  => 'behavior',
+			),
+			array(
+				'path'           => 'assets/logo.png',
+				'content_base64' => '...',
+				'mime_type'      => 'image/png',
+				'role'           => 'brand-asset',
 			),
 		),
 	)
