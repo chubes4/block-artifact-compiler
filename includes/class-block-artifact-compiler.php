@@ -810,7 +810,7 @@ class Block_Artifact_Compiler {
 
 			if ( preg_match_all('/data-component\s*=\s*(["\'])([^"\']+)\1/i', $file['content'], $matches) ) {
 				foreach ( $matches[2] as $name ) {
-					$key = sanitize_key($name);
+					$key = bac_sanitize_key($name);
 					if ( '' !== $key ) {
 						$candidates[ 'explicit:' . $key ] = array(
 							'name'        => $key,
@@ -826,7 +826,7 @@ class Block_Artifact_Compiler {
 				foreach ( $matches[2] as $class_list ) {
 					$class_tokens = preg_split('/\s+/', trim($class_list));
 					foreach ( false === $class_tokens ? array() : $class_tokens as $class ) {
-						$class = sanitize_key($class);
+						$class = bac_sanitize_key($class);
 						if ( '' === $class || strlen($class) < 3 ) {
 							continue;
 						}
@@ -890,7 +890,7 @@ class Block_Artifact_Compiler {
 
 			$name = isset($decoded['name']) && is_string($decoded['name']) ? trim($decoded['name']) : '';
 			if ( '' === $name ) {
-				$name          = 'generated/' . ( '' === $directory ? 'block' : sanitize_key(basename($directory)) );
+				$name          = 'generated/' . ( '' === $directory ? 'block' : bac_sanitize_key(basename($directory)) );
 				$diagnostics[] = $this->diagnostic(
 					'block_json_missing_name',
 					'warning',
@@ -906,7 +906,7 @@ class Block_Artifact_Compiler {
 			$block_types[] = array(
 				'schema'          => 'chubes4/wordpress-block-type-artifact/v1',
 				'name'            => $name,
-				'slug'            => sanitize_key(basename($name)),
+				'slug'            => bac_sanitize_key(basename($name)),
 				'directory'       => $directory,
 				'block_json_path' => $block_json_file['path'],
 				'block_json'      => $decoded,
@@ -1175,7 +1175,7 @@ class Block_Artifact_Compiler {
 			return (string) $content;
 		}
 
-		$encoded = wp_json_encode($content, JSON_UNESCAPED_SLASHES);
+		$encoded = bac_json_encode($content, JSON_UNESCAPED_SLASHES);
 		return is_string($encoded) ? $encoded : '';
 	}
 
@@ -1235,7 +1235,7 @@ class Block_Artifact_Compiler {
 	 * Normalize file kind from explicit kind, path, and content.
 	 */
 	private function normalize_kind( string $kind, string $path, string $content, string $mime_type = '' ): string {
-		$kind = sanitize_key($kind);
+		$kind = bac_sanitize_key($kind);
 		if ( in_array($kind, array( 'html', 'css', 'js', 'jsx', 'tsx', 'json', 'markdown', 'mdx', 'asset', 'blocks' ), true) ) {
 			return $kind;
 		}
@@ -1305,7 +1305,7 @@ class Block_Artifact_Compiler {
 	 * Normalize a file role without making policy decisions about generated output.
 	 */
 	private function normalize_role( string $role, string $kind, string $mime_type, string $path ): string {
-		$role = sanitize_key($role);
+		$role = bac_sanitize_key($role);
 		if ( '' !== $role ) {
 			return $role;
 		}
@@ -1336,7 +1336,7 @@ class Block_Artifact_Compiler {
 	 * Normalize CSS/JS intent metadata.
 	 */
 	private function normalize_intent( string $intent, string $kind, string $role ): string {
-		$intent = sanitize_key($intent);
+		$intent = bac_sanitize_key($intent);
 		if ( '' !== $intent ) {
 			return $intent;
 		}
@@ -1373,7 +1373,7 @@ class Block_Artifact_Compiler {
 	 */
 	private function virtual_fragment_path( string $source, string $format ): string {
 		$path      = $this->safe_relative_path(str_replace(array( ':', '#' ), '-', $source));
-		$extension = match ( sanitize_key($format) ) {
+		$extension = match ( bac_sanitize_key($format) ) {
 			'css'      => 'css',
 			'js'       => 'js',
 			'markdown' => 'md',
@@ -1461,7 +1461,7 @@ class Block_Artifact_Compiler {
 				$value = array_values(array_filter(array_map(static fn ( string $item ): string => trim($item, " \t\n\r\0\x0B\"'"), explode(',', $list[1])), static fn ( string $item ): bool => '' !== $item));
 			}
 
-			$frontmatter[ sanitize_key($pair[1]) ] = $value;
+			$frontmatter[ bac_sanitize_key($pair[1]) ] = $value;
 		}
 
 		return array(
@@ -1695,7 +1695,7 @@ class Block_Artifact_Compiler {
 	private function slug_from_path( string $path ): string {
 		$base = preg_replace('/\.[A-Za-z0-9]+$/', '', basename($path));
 		$base = '' === $base || null === $base ? 'document' : $base;
-		return sanitize_key(str_replace(array( '_', '.' ), '-', $base));
+		return bac_sanitize_key(str_replace(array( '_', '.' ), '-', $base));
 	}
 
 	/**
@@ -1734,7 +1734,7 @@ class Block_Artifact_Compiler {
 		$deduped = array();
 		$seen    = array();
 		foreach ( $diagnostics as $diagnostic ) {
-			$details_json = wp_json_encode($diagnostic['details'] ?? array());
+			$details_json = bac_json_encode($diagnostic['details'] ?? array());
 			$key          = (string) ( $diagnostic['code'] ?? '' ) . '|' . md5(false === $details_json ? '' : $details_json);
 			if ( isset($seen[ $key ]) ) {
 				continue;
