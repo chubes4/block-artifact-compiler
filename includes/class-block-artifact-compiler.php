@@ -37,7 +37,11 @@ class Block_Artifact_Compiler {
 			$diagnostics[] = $this->diagnostic('missing_entry_html', 'error', 'No HTML entry file was available to compile.');
 		}
 
-		$conversion    = '' !== trim($html) ? $this->convert_html_to_blocks($html, $options) : array(
+		$entry_document = '' !== trim($html) ? $this->entry_document_contract($html, $entry_path) : array(
+			'body_html' => '',
+			'metadata'  => array(),
+		);
+		$conversion    = '' !== trim($entry_document['body_html']) ? $this->convert_html_to_blocks($entry_document['body_html'], $options) : array(
 			'serialized_blocks' => '',
 			'blocks'            => array(),
 			'diagnostics'       => array(),
@@ -76,6 +80,7 @@ class Block_Artifact_Compiler {
 				'block_markup' => $conversion['serialized_blocks'],
 				'blocks'       => $conversion['blocks'],
 				'block_tree'   => $this->block_tree_report($conversion['blocks'], $conversion['serialized_blocks']),
+				'document_metadata' => $entry_document['metadata'],
 				'block_types'  => $block_types,
 				'plugins'      => $plugins,
 				'requirements' => $requirements,
@@ -431,6 +436,204 @@ class Block_Artifact_Compiler {
 		}
 
 		return null;
+	}
+
+	/**
+	 * Split a full HTML document into renderable body markup and document metadata.
+	 *
+	 * @param string $html       Source HTML.
+	 * @param string $entry_path Source path.
+	 * @return array{body_html:string,metadata:array<string,mixed>}
+	 */
+	private function entry_document_contract( string $html, string $entry_path ): array {
+		$metadata = array(
+			'schema'      => 'block-artifact-compiler/document-metadata/v1',
+			'source_path' => $entry_path,
+			'title'       => '',
+			'meta'        => array(),
+			'links'       => array(),
+			'styles'      => array(),
+			'scripts'     => array(),
+		);
+
+		if ( '' === trim($html) || ! class_exists('DOMDocument') ) {
+			return array(
+				'body_html' => $html,
+				'metadata'  => $metadata,
+			);
+		}
+
+		$doc      = new DOMDocument();
+		$previous = libxml_use_internal_errors(true);
+		$loaded   = $doc->loadHTML($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+		libxml_clear_errors();
+		libxml_use_internal_errors($previous);
+		if ( ! $loaded ) {
+			return array(
+				'body_html' => $html,
+				'metadata'  => $metadata,
+			);
+		}
+
+		$head = $doc->getElementsByTagName('head')->item(0);
+		if ( $head instanceof DOMElement ) {
+			$metadata['title']   = $this->first_text_child($head, 'title');
+			$metadata['meta']    = $this->head_element_attributes($head, 'meta', array( 'charset', 'name', 'property', 'http-equiv', 'content' ));
+			$metadata['links']   = $this->head_element_attributes($head, 'link', array( 'rel', 'href', 'as', 'type', 'media', 'crossorigin', 'integrity' ));
+			$metadata['styles']  = $this->head_inline_contents($head, 'style');
+			$metadata['scripts'] = $this->head_script_contracts($head);
+		}
+
+		$body = $doc->getElementsByTagName('body')->item(0);
+		$body_html = $body instanceof DOMElement ? $this->inner_html($doc, $body) : $this->document_without_head($doc);
+
+		return array(
+			'body_html' => trim($body_html),
+			'metadata'  => $metadata,
+		);
+	}
+
+	/**
+	 * Read the first text child by tag name.
+	 *
+	 * @param DOMElement $root Root element.
+	 * @param string     $tag  Tag name.
+	 * @return string
+	 */
+	private function first_text_child( DOMElement $root, string $tag ): string {
+		$nodes = $root->getElementsByTagName($tag);
+		$node  = $nodes->length > 0 ? $nodes->item(0) : null;
+
+		return $node instanceof DOMNode ? trim((string) $node->textContent) : '';
+	}
+
+	/**
+	 * Collect safe attributes from head child elements.
+	 *
+	 * @param DOMElement        $head       Head element.
+	 * @param string            $tag        Tag name.
+	 * @param array<int,string> $attributes Attribute allow-list.
+	 * @return array<int,array<string,string>>
+	 */
+	private function head_element_attributes( DOMElement $head, string $tag, array $attributes ): array {
+		$items = array();
+		foreach ( $head->getElementsByTagName($tag) as $node ) {
+			if ( ! $node instanceof DOMElement ) {
+				continue;
+			}
+
+			$item = array();
+			foreach ( $attributes as $attribute ) {
+				$value = trim($node->getAttribute($attribute));
+				if ( '' !== $value ) {
+					$item[ str_replace('-', '_', $attribute) ] = $value;
+				}
+			}
+
+			if ( ! empty($item) ) {
+				$items[] = $item;
+			}
+		}
+
+		return $items;
+	}
+
+	/**
+	 * Collect inline head element contents.
+	 *
+	 * @param DOMElement $head Head element.
+	 * @param string     $tag  Tag name.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function head_inline_contents( DOMElement $head, string $tag ): array {
+		$items = array();
+		foreach ( $head->getElementsByTagName($tag) as $node ) {
+			$content = trim((string) $node->textContent);
+			if ( '' === $content ) {
+				continue;
+			}
+
+			$items[] = array(
+				'content' => $content,
+				'bytes'   => strlen($content),
+				'hash'    => hash('sha256', $content),
+			);
+		}
+
+		return $items;
+	}
+
+	/**
+	 * Collect script metadata from the document head.
+	 *
+	 * @param DOMElement $head Head element.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function head_script_contracts( DOMElement $head ): array {
+		$scripts = array();
+		foreach ( $head->getElementsByTagName('script') as $node ) {
+			if ( ! $node instanceof DOMElement ) {
+				continue;
+			}
+
+			$script = array();
+			foreach ( array( 'src', 'type', 'defer', 'async', 'crossorigin', 'integrity' ) as $attribute ) {
+				if ( $node->hasAttribute($attribute) ) {
+					$value = trim($node->getAttribute($attribute));
+					$script[ $attribute ] = '' === $value && in_array($attribute, array( 'defer', 'async' ), true) ? true : $value;
+				}
+			}
+
+			$content = trim((string) $node->textContent);
+			if ( '' !== $content ) {
+				$script['inline'] = array(
+					'bytes' => strlen($content),
+					'hash'  => hash('sha256', $content),
+				);
+			}
+
+			if ( ! empty($script) ) {
+				$scripts[] = $script;
+			}
+		}
+
+		return $scripts;
+	}
+
+	/**
+	 * Serialize a DOM element's children.
+	 *
+	 * @param DOMDocument $doc     Document.
+	 * @param DOMElement  $element Element.
+	 * @return string
+	 */
+	private function inner_html( DOMDocument $doc, DOMElement $element ): string {
+		$html = array();
+		foreach ( $element->childNodes as $child ) {
+			$serialized = $doc->saveHTML($child);
+			if ( false !== $serialized ) {
+				$html[] = $serialized;
+			}
+		}
+
+		return implode('', $html);
+	}
+
+	/**
+	 * Serialize the document after removing document-level head metadata.
+	 *
+	 * @param DOMDocument $doc Document.
+	 * @return string
+	 */
+	private function document_without_head( DOMDocument $doc ): string {
+		foreach ( iterator_to_array($doc->getElementsByTagName('head')) as $head ) {
+			if ( $head instanceof DOMNode && $head->parentNode instanceof DOMNode ) {
+				$head->parentNode->removeChild($head);
+			}
+		}
+
+		$html = $doc->saveHTML();
+		return false === $html ? '' : $html;
 	}
 
 	/**
