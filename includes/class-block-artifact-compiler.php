@@ -492,7 +492,7 @@ class Block_Artifact_Compiler {
 			'scripts'     => array(),
 		);
 
-		if ( '' === trim($html) || ! class_exists('DOMDocument') ) {
+		if ( '' === trim($html) || ! class_exists('DOMDocument') || ! $this->is_full_html_document($html) ) {
 			return array(
 				'body_html' => $html,
 				'metadata'  => $metadata,
@@ -527,6 +527,19 @@ class Block_Artifact_Compiler {
 			'body_html' => trim($body_html),
 			'metadata'  => $metadata,
 		);
+	}
+
+	/**
+	 * Check whether source HTML should be parsed as a full document.
+	 *
+	 * Body fragments are already the editable payload. Parsing them with
+	 * DOMDocument can repair sibling block elements into invalid descendants.
+	 *
+	 * @param string $html Source HTML.
+	 * @return bool
+	 */
+	private function is_full_html_document( string $html ): bool {
+		return 1 === preg_match('/<(?:!doctype\s+html|html|head|body)\b/i', $html);
 	}
 
 	/**
