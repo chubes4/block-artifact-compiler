@@ -150,6 +150,11 @@ $assert( ! empty( array_filter( $mdx['diagnostics'] ?? array(), static fn ( arra
 $fragment = bac_compile_fragment( '<div class="feature-card">Feature</div>', 'main:index.html', 'html', $fallback_options );
 $assert( 'main-index.html' === ( $fragment['input']['entry_path'] ?? '' ), 'fragment source is normalized to virtual path' );
 
+$sibling_fragment = bac_compile_fragment( '<h1>Button Wrapper Style</h1><p><a href="#try" class="btn nav-cta">Request Access</a></p>', 'main:button-wrapper-style.html', 'html', $fallback_options );
+$sibling_markup   = (string) ( $sibling_fragment['wordpress_artifacts']['block_markup'] ?? '' );
+$assert( str_contains( $sibling_markup, '</h1><p><a href="#try" class="btn nav-cta">Request Access</a></p>' ), 'html fragments preserve sibling block structure before conversion', $sibling_markup );
+$assert( ! str_contains( $sibling_markup, '<h1>Button Wrapper Style<p>' ), 'html fragments do not nest following paragraphs inside headings', $sibling_markup );
+
 $markdown_fragment = bac_compile_fragment( '# Feature\n\nMarkdown fragment.', 'content/feature.md', 'markdown', $fallback_options );
 $assert( 'content/feature.md' === ( $markdown_fragment['input']['entry_path'] ?? '' ), 'markdown fragment keeps a virtual markdown source path' );
 $assert( 'markdown' === ( $markdown_fragment['bfb_report']['source'] ?? '' ), 'markdown fragment routes through BAC conversion envelope' );
