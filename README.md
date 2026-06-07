@@ -49,6 +49,8 @@ The compiler result returns:
 - component candidates from MDX JSX references and generated JSX/TSX component files
 - post/page-like `documents` artifacts compiled from Markdown and MDX source documents
 - generated custom block type artifacts discovered from `block.json` roots
+- generated plugin artifacts discovered from WordPress plugin headers
+- materializer-facing plugin and custom-block requirements showing which generated artifacts are provided and which custom blocks remain external
 - generated file manifest for non-entry artifact files, including MIME type, role, encoding, binary marker, `content_base64` for binary assets, and CSS/JS intent when present or inferred
 - generated file manifest provenance, including uncompiled source documents with stable source hashes
 - diagnostics
@@ -56,6 +58,8 @@ The compiler result returns:
 - optional BFB conversion report
 
 Block type artifacts are normalized compiler output, not generation prompt constraints. Generation can produce loose files; the compiler identifies block roots, records diagnostics, and exposes a stable contract for downstream review and materialization.
+
+Plugin artifacts follow the same rule. BAC detects WordPress plugin headers, preserves safe header metadata and source file inventories, links generated `block.json` artifacts inside the plugin directory, and reports requirements without installing, activating, or resolving external plugins. Downstream materializers such as Static Site Importer can decide whether a `provided` plugin/custom-block artifact should be promoted or whether an `external` custom-block requirement needs a preinstalled dependency.
 
 ## Public API
 
@@ -128,6 +132,52 @@ array(
 					'files'       => array(...),
 				),
 				'files'           => array(),
+			),
+		),
+		'plugins'      => array(
+			array(
+				'schema'      => 'chubes4/wordpress-plugin-artifact/v1',
+				'slug'        => 'acme-blocks',
+				'directory'   => 'plugins/acme-blocks',
+				'plugin_file' => 'plugins/acme-blocks/acme-blocks.php',
+				'headers'     => array(
+					'name'         => 'Acme Blocks',
+					'version'      => '0.1.0',
+					'requires_php' => '8.1',
+				),
+				'blocks'      => array(
+					array(
+						'name'            => 'acme/hero',
+						'directory'       => 'plugins/acme-blocks/blocks/hero',
+						'block_json_path' => 'plugins/acme-blocks/blocks/hero/block.json',
+					),
+				),
+				'provenance'  => array(...),
+				'files'       => array(...),
+			),
+		),
+		'requirements' => array(
+			'plugins'       => array(
+				array(
+					'slug'        => 'acme-blocks',
+					'plugin_file' => 'plugins/acme-blocks/acme-blocks.php',
+					'source'      => 'plugin_artifact',
+					'status'      => 'provided',
+				),
+			),
+			'custom_blocks' => array(
+				array(
+					'name'      => 'acme/hero',
+					'namespace' => 'acme',
+					'source'    => 'block_json',
+					'status'    => 'provided',
+				),
+				array(
+					'name'      => 'vendor/card',
+					'namespace' => 'vendor',
+					'source'    => 'block_markup',
+					'status'    => 'external',
+				),
 			),
 		),
 		'components'   => array(),
