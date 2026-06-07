@@ -138,6 +138,28 @@ $assert( ! empty( array_filter( $mdx['diagnostics'] ?? array(), static fn ( arra
 $fragment = bac_compile_fragment( '<div class="feature-card">Feature</div>', 'main:index.html' );
 $assert( 'main-index.html' === ( $fragment['input']['entry_path'] ?? '' ), 'fragment source is normalized to virtual path' );
 
+$full_document = bac_compile_website_artifact(
+	array(
+		'files' => array(
+			array(
+				'path'    => 'index.html',
+				'content' => '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ember & Rye</title><meta name="description" content="Wood-fired bakery"><link rel="stylesheet" href="/assets/site.css"></head><body><header class="site-header"><a href="/">Ember & Rye</a></header><main><section class="hero"><h1>Fire, flour, patience.</h1><p>Small-batch loaves.</p></section></main></body></html>',
+			),
+		),
+	)
+);
+$full_document_markup = (string) ( $full_document['wordpress_artifacts']['block_markup'] ?? '' );
+$full_document_metadata = $full_document['wordpress_artifacts']['document_metadata'] ?? array();
+$assert( ! str_contains( $full_document_markup, '<meta' ), 'full document meta tags are not emitted as block content', $full_document_markup );
+$assert( ! str_contains( $full_document_markup, '<title' ), 'full document title tag is not emitted as block content', $full_document_markup );
+$assert( ! str_contains( $full_document_markup, '<link' ), 'full document link tags are not emitted as block content', $full_document_markup );
+$assert( str_contains( $full_document_markup, 'Fire, flour, patience.' ), 'full document body content is preserved in block content', $full_document_markup );
+$assert( 'block-artifact-compiler/document-metadata/v1' === ( $full_document_metadata['schema'] ?? '' ), 'full document exposes metadata contract' );
+$assert( 'Ember & Rye' === ( $full_document_metadata['title'] ?? '' ), 'full document title is routed to metadata contract' );
+$assert( 'utf-8' === ( $full_document_metadata['meta'][0]['charset'] ?? '' ), 'charset meta is routed to metadata contract' );
+$assert( 'viewport' === ( $full_document_metadata['meta'][1]['name'] ?? '' ), 'viewport meta is routed to metadata contract' );
+$assert( '/assets/site.css' === ( $full_document_metadata['links'][0]['href'] ?? '' ), 'stylesheet link is routed to metadata contract' );
+
 $summary = bac_summarize_result( $messy );
 $assert( ( $summary['component_count'] ?? 0 ) > 0, 'summary exposes component count' );
 $assert( ( $summary['source_element_count'] ?? 0 ) > 0, 'summary exposes source element count' );
