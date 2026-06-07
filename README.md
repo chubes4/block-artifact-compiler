@@ -47,7 +47,7 @@ The compiler result returns:
 - parsed blocks when WordPress parsing is available
 - component candidates from explicit `data-component` markers and repeated semantic class tokens
 - component candidates from MDX JSX references and generated JSX/TSX component files
-- post/page-like `documents` artifacts compiled from Markdown and MDX source documents
+- post/page-like `documents` artifacts compiled from HTML, Markdown, and MDX source documents
 - generated custom block type artifacts discovered from `block.json` roots
 - generated plugin artifacts discovered from WordPress plugin headers
 - materializer-facing plugin and custom-block requirements showing which generated artifacts are provided and which custom blocks remain external
@@ -98,6 +98,19 @@ array(
 	'wordpress_artifacts' => array(
 		'block_markup' => '<!-- wp:paragraph -->...',
 		'blocks'       => array(),
+		'documents'    => array(
+			array(
+				'source_path'       => 'website/menu.html',
+				'kind'              => 'html',
+				'post_type'         => 'page',
+				'slug'              => 'menu',
+				'title'             => 'Menu',
+				'entrypoint'        => false,
+				'document_metadata' => array(...),
+				'block_markup'      => '<!-- wp:paragraph -->...',
+				'provenance'        => array(...),
+			),
+		),
 		'block_types'  => array(
 			array(
 				'schema'          => 'chubes4/wordpress-block-type-artifact/v1',
