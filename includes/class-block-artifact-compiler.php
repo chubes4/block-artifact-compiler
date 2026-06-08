@@ -68,7 +68,8 @@ class Block_Artifact_Compiler {
 			$conversion['report']            = isset($documents['documents'][0]['bfb_report']) && is_array($documents['documents'][0]['bfb_report']) ? $documents['documents'][0]['bfb_report'] : array();
 		}
 		$requirements   = $this->build_artifact_requirements($conversion['serialized_blocks'], $block_types, $plugins);
-		$template_parts = $this->template_part_artifacts($normalized, $options);
+		$template_parts = $this->template_part_artifacts($normalized, $entry_path, $options);
+		$regions        = $this->semantic_region_contracts($normalized);
 
 		return array(
 			'schema'              => self::RESULT_SCHEMA,
@@ -92,7 +93,8 @@ class Block_Artifact_Compiler {
 				'blocks'       => $conversion['blocks'],
 				'block_tree'   => $this->block_tree_report($conversion['blocks'], $conversion['serialized_blocks']),
 				'document_metadata' => $entry_document['metadata'],
-				'site'         => $this->compiled_site_artifact($normalized, $documents['documents']),
+				'site'         => $this->compiled_site_artifact($normalized, $documents['documents'], $template_parts, $regions),
+				'regions'      => $regions,
 				'template_parts' => $template_parts,
 				'asset_references' => $this->compiled_asset_references($conversion, $documents['documents'], $template_parts),
 				'navigation_candidates' => $this->compiled_navigation_candidates($conversion, $documents['documents'], $template_parts),
@@ -814,12 +816,14 @@ class Block_Artifact_Compiler {
 	/**
 	 * Build a materializer-neutral compiled site/theme artifact.
 	 *
-	 * @param  array{files:array<int,array<string,mixed>>} $artifact  Normalized artifact.
-	 * @param  array<int,array<string,mixed>>              $documents Compiled document artifacts.
+	 * @param  array{files:array<int,array<string,mixed>>} $artifact       Normalized artifact.
+	 * @param  array<int,array<string,mixed>>              $documents      Compiled document artifacts.
+	 * @param  array<int,array<string,mixed>>              $template_parts Template part artifacts.
+	 * @param  array<int,array<string,mixed>>              $regions        Semantic region artifacts.
 	 * @return array<string,mixed> Compiled site artifact.
 	 */
-	private function compiled_site_artifact( array $artifact, array $documents ): array {
-		$shared_regions = $this->shared_region_contracts($artifact);
+	private function compiled_site_artifact( array $artifact, array $documents, array $template_parts, array $regions ): array {
+		$shared_regions = $this->shared_region_contracts($regions);
 		$pages = array_map(
 			static function ( array $document ): array {
 				return array(
@@ -838,18 +842,29 @@ class Block_Artifact_Compiler {
 		return array(
 			'schema'         => 'block-artifact-compiler/compiled-site/v1',
 			'pages'          => $pages,
-			'shared_regions' => $shared_regions,
-			'template_parts' => array_map(
+			'regions'        => array_map(
 				static function ( array $region ): array {
 					return array(
-						'slug'         => (string) ( $region['role'] ?? '' ),
-						'area'         => (string) ( $region['role'] ?? '' ),
+						'role'         => (string) ( $region['role'] ?? '' ),
 						'source_hash'  => (string) ( $region['source_hash'] ?? '' ),
 						'source_paths' => isset($region['source_paths']) && is_array($region['source_paths']) ? $region['source_paths'] : array(),
+						'artifact'     => 'wordpress_artifacts.regions',
+					);
+				},
+				$regions
+			),
+			'shared_regions' => $shared_regions,
+			'template_parts' => array_map(
+				static function ( array $template_part ): array {
+					return array(
+						'slug'         => (string) ( $template_part['slug'] ?? '' ),
+						'area'         => (string) ( $template_part['area'] ?? '' ),
+						'source_hash'  => (string) ( $template_part['source_hash'] ?? '' ),
+						'source_paths' => isset($template_part['source_paths']) && is_array($template_part['source_paths']) ? $template_part['source_paths'] : array(),
 						'artifact'     => 'wordpress_artifacts.template_parts',
 					);
 				},
-				array_values(array_filter($shared_regions, static fn ( array $region ): bool => in_array((string) ( $region['role'] ?? '' ), array( 'header', 'footer' ), true)))
+				$template_parts
 			),
 			'theme_assets'   => $this->theme_asset_contracts($artifact),
 			'provenance'     => array(
@@ -859,12 +874,27 @@ class Block_Artifact_Compiler {
 	}
 
 	/**
-	 * Extract conservative shared region candidates from HTML documents.
+	 * Extract conservative shared region candidates from semantic region contracts.
 	 *
-	 * @param  array{files:array<int,array<string,mixed>>} $artifact Normalized artifact.
+	 * @param  array<int,array<string,mixed>> $regions Semantic region contracts.
 	 * @return array<int,array<string,mixed>> Shared region contracts.
 	 */
-	private function shared_region_contracts( array $artifact ): array {
+	private function shared_region_contracts( array $regions ): array {
+		return array_values(
+			array_filter(
+				$regions,
+				static fn ( array $region ): bool => count($region['source_paths']) > 1
+			)
+		);
+	}
+
+	/**
+	 * Extract semantic region contracts from HTML documents.
+	 *
+	 * @param  array{files:array<int,array<string,mixed>>} $artifact Normalized artifact.
+	 * @return array<int,array<string,mixed>> Region contracts grouped by role and source hash.
+	 */
+	private function semantic_region_contracts( array $artifact ): array {
 		$regions = array();
 		foreach ( $artifact['files'] as $file ) {
 			if ( 'html' !== $file['kind'] || ! empty($file['binary']) ) {
@@ -886,12 +916,7 @@ class Block_Artifact_Compiler {
 			}
 		}
 
-		return array_values(
-			array_filter(
-				$regions,
-				static fn ( array $region ): bool => count($region['source_paths']) > 1
-			)
-		);
+		return array_values($regions);
 	}
 
 	/**
@@ -914,22 +939,23 @@ class Block_Artifact_Compiler {
 		}
 
 		$regions = array();
-		foreach ( array( 'header', 'footer', 'main' ) as $tag ) {
-			$node = $doc->getElementsByTagName($tag)->item(0);
-			if ( ! $node instanceof DOMElement ) {
-				continue;
-			}
-			$markup = trim((string) $doc->saveHTML($node));
-			if ( '' === $markup ) {
-				continue;
-			}
+		foreach ( array( 'header', 'nav', 'main', 'article', 'section', 'aside', 'footer' ) as $tag ) {
+			foreach ( $doc->getElementsByTagName($tag) as $node ) {
+				if ( ! $node instanceof DOMElement ) {
+					continue;
+				}
+				$markup = trim((string) $doc->saveHTML($node));
+				if ( '' === $markup ) {
+					continue;
+				}
 
-			$regions[] = array(
-				'role'    => $tag,
-				'hash'    => hash('sha256', $markup),
-				'excerpt' => substr(preg_replace('/\s+/', ' ', $markup) ?? $markup, 0, 240),
-				'html'    => $markup,
-			);
+				$regions[] = array(
+					'role'    => $tag,
+					'hash'    => hash('sha256', $markup),
+					'excerpt' => substr(preg_replace('/\s+/', ' ', $markup) ?? $markup, 0, 240),
+					'html'    => $markup,
+				);
+			}
 		}
 
 		return $regions;
@@ -972,20 +998,17 @@ class Block_Artifact_Compiler {
 	}
 
 	/**
-	 * Compile reusable template-part artifacts from shared header/footer regions.
+	 * Compile canonical template-part artifacts from header/footer regions.
 	 *
 	 * @param  array{files:array<int,array<string,mixed>>} $artifact Normalized artifact.
+	 * @param  string                                      $entry_path Entrypoint path.
 	 * @param  array<string,mixed>                         $options  Conversion options.
 	 * @return array<int,array<string,mixed>> Template part artifacts.
 	 */
-	private function template_part_artifacts( array $artifact, array $options ): array {
+	private function template_part_artifacts( array $artifact, string $entry_path, array $options ): array {
 		$template_parts = array();
-		foreach ( $this->shared_region_contracts($artifact) as $region ) {
+		foreach ( $this->canonical_template_part_regions($artifact, $entry_path) as $region ) {
 			$role = (string) ( $region['role'] ?? '' );
-			if ( ! in_array($role, array( 'header', 'footer' ), true) ) {
-				continue;
-			}
-
 			$source_html = (string) ( $region['source_html'] ?? '' );
 			$conversion  = $this->convert_content_to_blocks($source_html, 'html', $options);
 
@@ -1006,6 +1029,50 @@ class Block_Artifact_Compiler {
 		}
 
 		return $template_parts;
+	}
+
+	/**
+	 * Select one canonical header/footer region per role for materializers.
+	 *
+	 * @param  array{files:array<int,array<string,mixed>>} $artifact   Normalized artifact.
+	 * @param  string                                      $entry_path Entrypoint path.
+	 * @return array<int,array<string,mixed>> Canonical region contracts.
+	 */
+	private function canonical_template_part_regions( array $artifact, string $entry_path ): array {
+		$selected = array();
+		foreach ( $this->semantic_region_contracts($artifact) as $region ) {
+			$role = (string) ( $region['role'] ?? '' );
+			if ( ! in_array($role, array( 'header', 'footer' ), true) ) {
+				continue;
+			}
+
+			if ( ! isset($selected[ $role ]) || $this->is_preferred_template_part_region($region, $selected[ $role ], $entry_path) ) {
+				$selected[ $role ] = $region;
+			}
+		}
+
+		return array_values($selected);
+	}
+
+	/**
+	 * Prefer the entrypoint region, then the most widely reused region.
+	 *
+	 * @param array<string,mixed> $candidate Candidate region.
+	 * @param array<string,mixed> $current   Current selected region.
+	 * @param string              $entry_path Entrypoint path.
+	 * @return bool Whether the candidate should replace the current region.
+	 */
+	private function is_preferred_template_part_region( array $candidate, array $current, string $entry_path ): bool {
+		$candidate_paths = isset($candidate['source_paths']) && is_array($candidate['source_paths']) ? $candidate['source_paths'] : array();
+		$current_paths   = isset($current['source_paths']) && is_array($current['source_paths']) ? $current['source_paths'] : array();
+		$candidate_entry = '' !== $entry_path && in_array($entry_path, $candidate_paths, true);
+		$current_entry   = '' !== $entry_path && in_array($entry_path, $current_paths, true);
+
+		if ( $candidate_entry !== $current_entry ) {
+			return $candidate_entry;
+		}
+
+		return count($candidate_paths) > count($current_paths);
 	}
 
 	/**
