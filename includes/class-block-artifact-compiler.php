@@ -43,10 +43,16 @@ class Block_Artifact_Compiler {
 			'metadata'  => array(),
 		);
 		$conversion    = '' !== trim($entry_document['body_html']) ? $this->convert_content_to_blocks($entry_document['body_html'], 'html', $options) : array(
-			'serialized_blocks' => '',
-			'blocks'            => array(),
-			'diagnostics'       => array(),
-			'report'            => array(),
+			'serialized_blocks'    => '',
+			'blocks'               => array(),
+			'diagnostics'          => array(),
+			'report'               => array(),
+			'asset_references'     => array(),
+			'svg_icon_artifacts'   => array(),
+			'navigation_candidates' => array(),
+			'selector_provenance'  => array(),
+			'fallbacks'            => array(),
+			'metrics'              => array(),
 		);
 		if ( '' === trim($entry_document['body_html']) && is_array($block_entry) ) {
 			$entry_path  = (string) $block_entry['path'];
@@ -66,6 +72,7 @@ class Block_Artifact_Compiler {
 			$conversion['serialized_blocks'] = (string) $documents['documents'][0]['block_markup'];
 			$conversion['blocks']            = isset($documents['documents'][0]['blocks']) && is_array($documents['documents'][0]['blocks']) ? $documents['documents'][0]['blocks'] : array();
 			$conversion['report']            = isset($documents['documents'][0]['bfb_report']) && is_array($documents['documents'][0]['bfb_report']) ? $documents['documents'][0]['bfb_report'] : array();
+			$conversion['selector_provenance'] = isset($documents['documents'][0]['selector_provenance']) && is_array($documents['documents'][0]['selector_provenance']) ? $documents['documents'][0]['selector_provenance'] : array();
 		}
 		$requirements   = $this->build_artifact_requirements($conversion['serialized_blocks'], $block_types, $plugins);
 		$template_parts = $this->template_part_artifacts($normalized, $entry_path, $options);
@@ -102,6 +109,7 @@ class Block_Artifact_Compiler {
 				'navigation_candidates' => $this->compiled_navigation_candidates($conversion, $documents['documents'], $template_parts),
 				'visual_repair' => $visual_repair,
 				'visual_repair_metadata' => $visual_repair['metadata'],
+				'selector_provenance' => $conversion['selector_provenance'],
 				'block_types'  => $block_types,
 				'plugins'      => $plugins,
 				'requirements' => $requirements,
@@ -704,7 +712,7 @@ class Block_Artifact_Compiler {
 	 * @param  string              $content Source content.
 	 * @param  string              $format  Source format.
 	 * @param  array<string,mixed> $options Compiler options.
-	 * @return array{serialized_blocks:string,blocks:array,diagnostics:array<int,array<string,mixed>>,report:array<string,mixed>,asset_references:array<int,array<string,mixed>>,svg_icon_artifacts:array<int,array<string,mixed>>,navigation_candidates:array<int,array<string,mixed>>,visual_repair_metadata:array<string,mixed>,fallbacks:array<int,array<string,mixed>>,metrics:array<string,mixed>}
+	 * @return array{serialized_blocks:string,blocks:array,diagnostics:array<int,array<string,mixed>>,report:array<string,mixed>,asset_references:array<int,array<string,mixed>>,svg_icon_artifacts:array<int,array<string,mixed>>,navigation_candidates:array<int,array<string,mixed>>,visual_repair_metadata:array<string,mixed>,selector_provenance:array<int,array<string,mixed>>,fallbacks:array<int,array<string,mixed>>,metrics:array<string,mixed>}
 	 */
 	private function convert_content_to_blocks( string $content, string $format, array $options ): array {
 		$format = $this->normalize_fragment_format($format);
@@ -723,6 +731,7 @@ class Block_Artifact_Compiler {
 				'svg_icon_artifacts'    => array(),
 				'navigation_candidates' => array(),
 				'visual_repair_metadata' => array(),
+				'selector_provenance'   => array(),
 				'fallbacks'             => array(),
 				'metrics'               => array(),
 			);
@@ -741,6 +750,7 @@ class Block_Artifact_Compiler {
 					'svg_icon_artifact_count'     => isset($result['svg_icon_artifacts']) && is_array($result['svg_icon_artifacts']) ? count($result['svg_icon_artifacts']) : 0,
 					'navigation_candidate_count' => isset($result['navigation_candidates']) && is_array($result['navigation_candidates']) ? count($result['navigation_candidates']) : 0,
 					'visual_repair_category_counts' => $this->visual_repair_category_counts(isset($result['visual_repair_metadata']) && is_array($result['visual_repair_metadata']) ? $result['visual_repair_metadata'] : array()),
+					'selector_provenance_count'  => isset($result['selector_provenance']) && is_array($result['selector_provenance']) ? count($result['selector_provenance']) : 0,
 				),
 			);
 
@@ -753,6 +763,7 @@ class Block_Artifact_Compiler {
 				'svg_icon_artifacts'    => isset($result['svg_icon_artifacts']) && is_array($result['svg_icon_artifacts']) ? $result['svg_icon_artifacts'] : array(),
 				'navigation_candidates' => isset($result['navigation_candidates']) && is_array($result['navigation_candidates']) ? $result['navigation_candidates'] : array(),
 				'visual_repair_metadata' => isset($result['visual_repair_metadata']) && is_array($result['visual_repair_metadata']) ? $result['visual_repair_metadata'] : array(),
+				'selector_provenance'   => isset($result['selector_provenance']) && is_array($result['selector_provenance']) ? $result['selector_provenance'] : array(),
 				'fallbacks'             => isset($result['fallbacks']) && is_array($result['fallbacks']) ? $result['fallbacks'] : array(),
 				'metrics'               => isset($result['metrics']) && is_array($result['metrics']) ? $result['metrics'] : array(),
 			);
@@ -774,6 +785,7 @@ class Block_Artifact_Compiler {
 				'svg_icon_artifacts'    => array(),
 				'navigation_candidates' => array(),
 				'visual_repair_metadata' => array(),
+				'selector_provenance'   => array(),
 				'fallbacks'             => array(),
 				'metrics'               => array(),
 			);
@@ -794,6 +806,7 @@ class Block_Artifact_Compiler {
 				'svg_icon_artifacts'    => array(),
 				'navigation_candidates' => array(),
 				'visual_repair_metadata' => array(),
+				'selector_provenance'   => array(),
 				'fallbacks'             => array(),
 				'metrics'               => array(),
 			);
@@ -813,6 +826,7 @@ class Block_Artifact_Compiler {
 			'svg_icon_artifacts'    => array(),
 			'navigation_candidates' => array(),
 			'visual_repair_metadata' => array(),
+			'selector_provenance'   => array(),
 			'fallbacks'             => array(),
 			'metrics'               => array(),
 		);
@@ -1083,6 +1097,7 @@ class Block_Artifact_Compiler {
 				'svg_icon_artifacts'    => $conversion['svg_icon_artifacts'],
 				'navigation_candidates' => $conversion['navigation_candidates'],
 				'visual_repair_metadata' => $conversion['visual_repair_metadata'],
+				'selector_provenance'   => $conversion['selector_provenance'],
 			);
 		}
 
@@ -1925,6 +1940,7 @@ class Block_Artifact_Compiler {
 						'svg_icon_artifacts' => $conversion['svg_icon_artifacts'],
 						'navigation_candidates' => $conversion['navigation_candidates'],
 						'visual_repair_metadata' => $conversion['visual_repair_metadata'],
+						'selector_provenance' => $conversion['selector_provenance'],
 						'diagnostics'       => $document_diagnostics,
 						'provenance'        => $file['provenance'],
 					)
@@ -1982,6 +1998,7 @@ class Block_Artifact_Compiler {
 					'svg_icon_artifacts' => $conversion['svg_icon_artifacts'],
 					'navigation_candidates' => $conversion['navigation_candidates'],
 					'visual_repair_metadata' => $conversion['visual_repair_metadata'],
+					'selector_provenance' => $conversion['selector_provenance'],
 					'diagnostics'  => $document_diagnostics,
 					'provenance'   => $file['provenance'],
 				)
