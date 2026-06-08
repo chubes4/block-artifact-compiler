@@ -277,6 +277,23 @@ if ( ! function_exists( 'html_to_blocks_convert_fragment' ) ) {
 					),
 				),
 			) : array(),
+			'selector_provenance'   => str_contains( $html, '<nav' ) ? array(
+				array(
+					'source'          => array(
+						'selector' => 'nav[aria-label="Primary"]',
+						'tag'      => 'nav',
+					),
+					'generated_block' => array(
+						'type'    => 'core/navigation',
+						'targets' => array(
+							array(
+								'name'     => 'navigation-wrapper',
+								'selector' => '.wp-block-navigation',
+							),
+						),
+					),
+				),
+			) : array(),
 			'metrics'               => array( 'total_ms' => 1.0 ),
 			'source'                => array( 'bytes' => strlen( $html ), 'context' => 'block_artifact_compiler' ),
 		);
@@ -294,10 +311,14 @@ $h2bc_result = bac_compile_website_artifact(
 $assert( 'success' === ( $h2bc_result['status'] ?? '' ), 'H2BC result API path compiles without fallback policy' );
 $assert( 1 === ( $h2bc_result['bfb_report']['h2bc_result']['asset_reference_count'] ?? null ), 'BAC report includes H2BC asset reference count' );
 $assert( 1 === ( $h2bc_result['bfb_report']['h2bc_result']['navigation_candidate_count'] ?? null ), 'BAC report includes H2BC navigation candidate count' );
+$assert( 1 === ( $h2bc_result['bfb_report']['h2bc_result']['selector_provenance_count'] ?? null ), 'BAC report includes H2BC selector provenance count' );
 $assert( ! empty( $h2bc_result['wordpress_artifacts']['asset_references'] ?? array() ), 'BAC exposes merged H2BC asset references' );
 $assert( ! empty( $h2bc_result['wordpress_artifacts']['navigation_candidates'] ?? array() ), 'BAC exposes merged H2BC navigation candidates' );
+$assert( 'nav[aria-label="Primary"]' === ( $h2bc_result['wordpress_artifacts']['selector_provenance'][0]['source']['selector'] ?? '' ), 'BAC exposes entry H2BC selector provenance' );
 $assert( ! empty( $h2bc_result['wordpress_artifacts']['documents'][0]['asset_references'] ?? array() ), 'document artifacts preserve H2BC asset references' );
+$assert( 'nav[aria-label="Primary"]' === ( $h2bc_result['wordpress_artifacts']['documents'][0]['selector_provenance'][0]['source']['selector'] ?? '' ), 'document artifacts preserve H2BC selector provenance' );
 $assert( ! empty( $h2bc_result['wordpress_artifacts']['template_parts'][0]['navigation_candidates'] ?? array() ), 'template part artifacts preserve H2BC navigation candidates' );
+$assert( 'nav[aria-label="Primary"]' === ( $h2bc_result['wordpress_artifacts']['template_parts'][0]['selector_provenance'][0]['source']['selector'] ?? '' ), 'template part artifacts preserve H2BC selector provenance' );
 
 $summary = bac_summarize_result( $messy );
 $assert( ( $summary['component_count'] ?? 0 ) > 0, 'summary exposes component count' );
