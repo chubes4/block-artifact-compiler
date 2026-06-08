@@ -77,6 +77,7 @@ class Block_Artifact_Compiler {
 		$requirements   = $this->build_artifact_requirements($conversion['serialized_blocks'], $block_types, $plugins);
 		$template_parts = $this->template_part_artifacts($normalized, $entry_path, $options);
 		$regions        = $this->semantic_region_contracts($normalized);
+		$visual_repair  = $this->visual_repair_artifacts($normalized, $conversion, $documents['documents'], $template_parts);
 
 		return array(
 			'schema'              => self::RESULT_SCHEMA,
@@ -106,6 +107,8 @@ class Block_Artifact_Compiler {
 				'asset_references' => $this->compiled_asset_references($conversion, $documents['documents'], $template_parts),
 				'svg_icon_artifacts' => $this->compiled_svg_icon_artifacts($conversion, $documents['documents'], $template_parts),
 				'navigation_candidates' => $this->compiled_navigation_candidates($conversion, $documents['documents'], $template_parts),
+				'visual_repair' => $visual_repair,
+				'visual_repair_metadata' => $visual_repair['metadata'],
 				'selector_provenance' => $conversion['selector_provenance'],
 				'block_types'  => $block_types,
 				'plugins'      => $plugins,
@@ -709,7 +712,7 @@ class Block_Artifact_Compiler {
 	 * @param  string              $content Source content.
 	 * @param  string              $format  Source format.
 	 * @param  array<string,mixed> $options Compiler options.
-	 * @return array{serialized_blocks:string,blocks:array,diagnostics:array<int,array<string,mixed>>,report:array<string,mixed>,asset_references:array<int,array<string,mixed>>,svg_icon_artifacts:array<int,array<string,mixed>>,navigation_candidates:array<int,array<string,mixed>>,selector_provenance:array<int,array<string,mixed>>,fallbacks:array<int,array<string,mixed>>,metrics:array<string,mixed>}
+	 * @return array{serialized_blocks:string,blocks:array,diagnostics:array<int,array<string,mixed>>,report:array<string,mixed>,asset_references:array<int,array<string,mixed>>,svg_icon_artifacts:array<int,array<string,mixed>>,navigation_candidates:array<int,array<string,mixed>>,visual_repair_metadata:array<string,mixed>,selector_provenance:array<int,array<string,mixed>>,fallbacks:array<int,array<string,mixed>>,metrics:array<string,mixed>}
 	 */
 	private function convert_content_to_blocks( string $content, string $format, array $options ): array {
 		$format = $this->normalize_fragment_format($format);
@@ -727,6 +730,7 @@ class Block_Artifact_Compiler {
 				'asset_references'      => array(),
 				'svg_icon_artifacts'    => array(),
 				'navigation_candidates' => array(),
+				'visual_repair_metadata' => array(),
 				'selector_provenance'   => array(),
 				'fallbacks'             => array(),
 				'metrics'               => array(),
@@ -745,6 +749,7 @@ class Block_Artifact_Compiler {
 					'asset_reference_count'       => isset($result['asset_references']) && is_array($result['asset_references']) ? count($result['asset_references']) : 0,
 					'svg_icon_artifact_count'     => isset($result['svg_icon_artifacts']) && is_array($result['svg_icon_artifacts']) ? count($result['svg_icon_artifacts']) : 0,
 					'navigation_candidate_count' => isset($result['navigation_candidates']) && is_array($result['navigation_candidates']) ? count($result['navigation_candidates']) : 0,
+					'visual_repair_category_counts' => $this->visual_repair_category_counts(isset($result['visual_repair_metadata']) && is_array($result['visual_repair_metadata']) ? $result['visual_repair_metadata'] : array()),
 					'selector_provenance_count'  => isset($result['selector_provenance']) && is_array($result['selector_provenance']) ? count($result['selector_provenance']) : 0,
 				),
 			);
@@ -757,6 +762,7 @@ class Block_Artifact_Compiler {
 				'asset_references'      => isset($result['asset_references']) && is_array($result['asset_references']) ? $result['asset_references'] : array(),
 				'svg_icon_artifacts'    => isset($result['svg_icon_artifacts']) && is_array($result['svg_icon_artifacts']) ? $result['svg_icon_artifacts'] : array(),
 				'navigation_candidates' => isset($result['navigation_candidates']) && is_array($result['navigation_candidates']) ? $result['navigation_candidates'] : array(),
+				'visual_repair_metadata' => isset($result['visual_repair_metadata']) && is_array($result['visual_repair_metadata']) ? $result['visual_repair_metadata'] : array(),
 				'selector_provenance'   => isset($result['selector_provenance']) && is_array($result['selector_provenance']) ? $result['selector_provenance'] : array(),
 				'fallbacks'             => isset($result['fallbacks']) && is_array($result['fallbacks']) ? $result['fallbacks'] : array(),
 				'metrics'               => isset($result['metrics']) && is_array($result['metrics']) ? $result['metrics'] : array(),
@@ -778,6 +784,7 @@ class Block_Artifact_Compiler {
 				'asset_references'      => array(),
 				'svg_icon_artifacts'    => array(),
 				'navigation_candidates' => array(),
+				'visual_repair_metadata' => array(),
 				'selector_provenance'   => array(),
 				'fallbacks'             => array(),
 				'metrics'               => array(),
@@ -798,6 +805,7 @@ class Block_Artifact_Compiler {
 				'asset_references'      => array(),
 				'svg_icon_artifacts'    => array(),
 				'navigation_candidates' => array(),
+				'visual_repair_metadata' => array(),
 				'selector_provenance'   => array(),
 				'fallbacks'             => array(),
 				'metrics'               => array(),
@@ -817,6 +825,7 @@ class Block_Artifact_Compiler {
 			'asset_references'      => array(),
 			'svg_icon_artifacts'    => array(),
 			'navigation_candidates' => array(),
+			'visual_repair_metadata' => array(),
 			'selector_provenance'   => array(),
 			'fallbacks'             => array(),
 			'metrics'               => array(),
@@ -1087,6 +1096,7 @@ class Block_Artifact_Compiler {
 				'asset_references'      => $conversion['asset_references'],
 				'svg_icon_artifacts'    => $conversion['svg_icon_artifacts'],
 				'navigation_candidates' => $conversion['navigation_candidates'],
+				'visual_repair_metadata' => $conversion['visual_repair_metadata'],
 				'selector_provenance'   => $conversion['selector_provenance'],
 			);
 		}
@@ -1184,6 +1194,426 @@ class Block_Artifact_Compiler {
 			$this->reference_rows_from_artifacts($documents, 'document', 'svg_icon_artifacts'),
 			$this->reference_rows_from_artifacts($template_parts, 'template_part', 'svg_icon_artifacts')
 		));
+	}
+
+	/**
+	 * Build compiler-owned visual repair artifacts from H2BC metadata and source CSS.
+	 *
+	 * @param array{files:array<int,array<string,mixed>>} $artifact       Normalized artifact.
+	 * @param array<string,mixed>                         $entry_conversion Entry conversion result.
+	 * @param array<int,array<string,mixed>>              $documents      Document artifacts.
+	 * @param array<int,array<string,mixed>>              $template_parts Template part artifacts.
+	 * @return array<string,mixed> Visual repair artifact envelope.
+	 */
+	private function visual_repair_artifacts( array $artifact, array $entry_conversion, array $documents, array $template_parts ): array {
+		$metadata = $this->compiled_visual_repair_metadata($entry_conversion, $documents, $template_parts);
+		$css      = $this->source_css($artifact['files']);
+		$frontend = $this->visual_repair_frontend_css($css, $metadata);
+		$editor   = $this->visual_repair_editor_css($css, $metadata);
+		$styles   = array();
+
+		if ( '' !== trim($frontend) ) {
+			$styles[] = array(
+				'schema'  => 'block-artifact-compiler/visual-repair-css/v1',
+				'target'  => 'frontend',
+				'path'    => 'assets/css/visual-repair.css',
+				'content' => $frontend,
+			);
+		}
+
+		if ( '' !== trim($editor) ) {
+			$styles[] = array(
+				'schema'  => 'block-artifact-compiler/visual-repair-css/v1',
+				'target'  => 'editor',
+				'path'    => 'assets/css/visual-repair-editor.css',
+				'content' => $editor,
+			);
+		}
+
+		return array(
+			'schema'   => 'block-artifact-compiler/visual-repair-artifacts/v1',
+			'metadata' => $metadata,
+			'styles'   => $styles,
+		);
+	}
+
+	/**
+	 * Merge visual repair metadata from entry, documents, and template parts.
+	 *
+	 * @param array<string,mixed>            $entry_conversion Entry conversion result.
+	 * @param array<int,array<string,mixed>> $documents        Document artifacts.
+	 * @param array<int,array<string,mixed>> $template_parts   Template part artifacts.
+	 * @return array<string,mixed> Merged metadata.
+	 */
+	private function compiled_visual_repair_metadata( array $entry_conversion, array $documents, array $template_parts ): array {
+		$metadata = array(
+			'schema'     => 'block-artifact-compiler/visual-repair-metadata/v1',
+			'categories' => array(
+				'groups'     => array(),
+				'images'     => array(),
+				'forms'      => array(),
+				'navigation' => array(),
+				'buttons'    => array(),
+				'decorative' => array(),
+				'fallbacks'  => array(),
+			),
+		);
+
+		$this->merge_visual_repair_metadata($metadata, $entry_conversion['visual_repair_metadata'] ?? array(), 'entry', '');
+		foreach ( $documents as $document ) {
+			$this->merge_visual_repair_metadata($metadata, $document['visual_repair_metadata'] ?? array(), 'document', (string) ( $document['source_path'] ?? '' ));
+		}
+		foreach ( $template_parts as $template_part ) {
+			$this->merge_visual_repair_metadata($metadata, $template_part['visual_repair_metadata'] ?? array(), 'template_part', (string) ( $template_part['slug'] ?? '' ));
+		}
+
+		foreach ( $metadata['categories'] as $category => $records ) {
+			$metadata['categories'][ $category ] = $this->dedupe_reference_rows($records);
+		}
+
+		return $metadata;
+	}
+
+	/**
+	 * Merge one H2BC visual repair metadata payload into the compiler payload.
+	 *
+	 * @param array<string,mixed> $target      Target metadata.
+	 * @param mixed               $source      Source metadata.
+	 * @param string              $scope       Source scope.
+	 * @param string              $source_path Source path or slug.
+	 */
+	private function merge_visual_repair_metadata( array &$target, mixed $source, string $scope, string $source_path ): void {
+		if ( ! is_array($source) || empty($source['categories']) || ! is_array($source['categories']) ) {
+			return;
+		}
+
+		foreach ( $target['categories'] as $category => $records ) {
+			$items = isset($source['categories'][ $category ]) && is_array($source['categories'][ $category ]) ? $source['categories'][ $category ] : array();
+			foreach ( $items as $item ) {
+				if ( ! is_array($item) ) {
+					continue;
+				}
+
+				$item['scope']       = $scope;
+				$item['source_path'] = $source_path;
+				$target['categories'][ $category ][] = $item;
+			}
+		}
+	}
+
+	/**
+	 * Count records in visual repair categories for compact reports.
+	 *
+	 * @param array<string,mixed> $metadata Visual repair metadata.
+	 * @return array<string,int> Category counts.
+	 */
+	private function visual_repair_category_counts( array $metadata ): array {
+		$counts = array();
+		$categories = isset($metadata['categories']) && is_array($metadata['categories']) ? $metadata['categories'] : array();
+		foreach ( $categories as $category => $records ) {
+			$counts[(string) $category] = is_array($records) ? count($records) : 0;
+		}
+
+		return $counts;
+	}
+
+	/**
+	 * Concatenate normalized source CSS files.
+	 *
+	 * @param array<int,array<string,mixed>> $files Normalized files.
+	 * @return string Source CSS.
+	 */
+	private function source_css( array $files ): string {
+		$css = '';
+		foreach ( $files as $file ) {
+			if ( 'css' !== ( $file['kind'] ?? '' ) || ! empty($file['binary']) ) {
+				continue;
+			}
+			$css .= "\n" . (string) ( $file['content'] ?? '' );
+		}
+
+		return $css;
+	}
+
+	/**
+	 * Build frontend visual repair CSS.
+	 *
+	 * @param string              $css      Source CSS.
+	 * @param array<string,mixed> $metadata Merged repair metadata.
+	 * @return string CSS rules.
+	 */
+	private function visual_repair_frontend_css( string $css, array $metadata ): string {
+		$rules = array();
+		if ( ! empty($metadata['categories']['groups']) ) {
+			$rules[] = '.wp-block-post-content.is-layout-flow > *, .wp-block-group.is-layout-flow > *, .wp-block-group.is-vertical > * { margin-block-start: 0; margin-block-end: 0; }';
+			$rules[] = '.wp-block-group.is-layout-flex, .wp-block-group.is-vertical { gap: 0; }';
+		}
+
+		$rules = array_merge($rules, $this->nav_selector_bridge_rules($css, $metadata));
+		$rules = array_merge($rules, $this->button_style_bridge_rules($css, $metadata));
+
+		return empty($rules) ? '' : "/* Block Artifact Compiler: visual repair artifacts. */\n" . implode("\n", array_values(array_unique($rules))) . "\n";
+	}
+
+	/**
+	 * Build editor-only visual repair CSS.
+	 *
+	 * @param string              $css      Source CSS.
+	 * @param array<string,mixed> $metadata Merged repair metadata.
+	 * @return string CSS rules.
+	 */
+	private function visual_repair_editor_css( string $css, array $metadata ): string {
+		$rules = array();
+		$decorative_classes = $this->visual_repair_classes($metadata, 'decorative');
+		foreach ( $decorative_classes as $class ) {
+			$rules[] = '.editor-styles-wrapper .wp-block-group.' . $class . ' .block-editor-block-variation-picker, .editor-styles-wrapper .wp-block-group.' . $class . ' .components-placeholder, .editor-styles-wrapper .wp-block-group.' . $class . ' .block-list-appender, .editor-styles-wrapper .wp-block-group.' . $class . ' .block-editor-button-block-appender { display: none; }';
+		}
+
+		foreach ( $this->absolute_position_classes_from_css($css) as $class ) {
+			$rules[] = '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .' . $class . ') { display: contents; }';
+		}
+		foreach ( $this->reveal_animation_classes_from_css($css) as $class ) {
+			$rules[] = '.editor-styles-wrapper .' . $class . ' { opacity: 1 !important; transform: none !important; }';
+		}
+
+		return empty($rules) ? '' : "/* Block Artifact Compiler: editor visual repair artifacts. */\n" . implode("\n", array_values(array_unique($rules))) . "\n";
+	}
+
+	/**
+	 * Build bridge rules for source nav selectors converted to group/nav blocks.
+	 *
+	 * @param string              $css      Source CSS.
+	 * @param array<string,mixed> $metadata Merged repair metadata.
+	 * @return array<int,string> CSS rules.
+	 */
+	private function nav_selector_bridge_rules( string $css, array $metadata ): array {
+		$classes = $this->visual_repair_classes($metadata, 'navigation');
+		if ( '' === trim($css) || empty($classes) || ! str_contains(strtolower($css), 'nav') ) {
+			return array();
+		}
+
+		$rules = array();
+		foreach ( $this->css_rule_blocks($css) as $rule ) {
+			$selectors = array();
+			foreach ( explode(',', $rule['selector']) as $selector ) {
+				$selector = trim($selector);
+				if ( ! preg_match('/(^|[\s>+~])nav(?=($|[\s>+~.#:\[]))/', $selector) ) {
+					continue;
+				}
+				foreach ( $classes as $class ) {
+					$selectors[] = preg_replace('/(^|[\s>+~])nav(?=($|[\s>+~.#:\[]))/', '$1.wp-block-group.' . $class, $selector) ?? $selector;
+				}
+			}
+			if ( ! empty($selectors) ) {
+				$rules[] = implode(', ', array_values(array_unique($selectors))) . ' { ' . $rule['body'] . ' }';
+			}
+		}
+
+		return $rules;
+	}
+
+	/**
+	 * Build bridge rules that move source button wrapper classes to button links.
+	 *
+	 * @param string              $css      Source CSS.
+	 * @param array<string,mixed> $metadata Merged repair metadata.
+	 * @return array<int,string> CSS rules.
+	 */
+	private function button_style_bridge_rules( string $css, array $metadata ): array {
+		$classes = $this->visual_repair_classes($metadata, 'buttons');
+		if ( empty($classes) ) {
+			return array();
+		}
+
+		$rules = array();
+		foreach ( $classes as $class ) {
+			$rules[] = '.wp-block-button.' . $class . ' .wp-block-button__link { color: inherit; background: inherit; border: inherit; border-radius: inherit; box-shadow: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-decoration: inherit; }';
+		}
+
+		foreach ( $this->css_rule_blocks($css) as $rule ) {
+			$selectors = array();
+			foreach ( explode(',', $rule['selector']) as $selector ) {
+				$selector = trim($selector);
+				foreach ( $classes as $class ) {
+					if ( preg_match('/(^|[^A-Za-z0-9_-])\.' . preg_quote($class, '/') . '(?=$|[^A-Za-z0-9_-])/', $selector) ) {
+						$selectors[] = '.wp-block-button.' . $class . ' .wp-block-button__link';
+					}
+				}
+			}
+			if ( ! empty($selectors) ) {
+				$rules[] = implode(', ', array_values(array_unique($selectors))) . ' { ' . $rule['body'] . ' }';
+			}
+		}
+
+		return $rules;
+	}
+
+	/**
+	 * Extract class names from one repair category.
+	 *
+	 * @param array<string,mixed> $metadata Repair metadata.
+	 * @param string              $category Category name.
+	 * @return array<int,string> Class names.
+	 */
+	private function visual_repair_classes( array $metadata, string $category ): array {
+		$classes = array();
+		$records = $metadata['categories'][ $category ] ?? array();
+		if ( ! is_array($records) ) {
+			return array();
+		}
+
+		foreach ( $records as $record ) {
+			if ( ! is_array($record) || empty($record['classes']) || ! is_array($record['classes']) ) {
+				continue;
+			}
+			foreach ( $record['classes'] as $class ) {
+				$class = (string) $class;
+				if ( preg_match('/^[A-Za-z_-][A-Za-z0-9_-]*$/', $class) ) {
+					$classes[] = $class;
+				}
+			}
+		}
+
+		sort($classes, SORT_STRING);
+		return array_values(array_unique($classes));
+	}
+
+	/**
+	 * Parse simple CSS rule blocks, including nested at-rule bodies as flat rules.
+	 *
+	 * @param string $css CSS.
+	 * @return array<int,array{selector:string,body:string}>
+	 */
+	private function css_rule_blocks( string $css ): array {
+		$css = preg_replace('/\/\*.*?\*\//s', '', $css) ?? $css;
+		$rules = array();
+		$length = strlen($css);
+		$offset = 0;
+		while ( $offset < $length && preg_match('/\G\s*([^{}]+)\{/', $css, $match, 0, $offset) ) {
+			$selector = trim($match[1]);
+			$body_start = $offset + strlen($match[0]);
+			$body_end = $this->find_css_block_end($css, $body_start);
+			if ( null === $body_end ) {
+				break;
+			}
+			$body = trim(substr($css, $body_start, $body_end - $body_start));
+			$offset = $body_end + 1;
+			if ( str_starts_with($selector, '@') ) {
+				foreach ( $this->css_rule_blocks($body) as $nested ) {
+					$rules[] = array(
+						'selector' => $nested['selector'],
+						'body'     => $nested['body'],
+					);
+				}
+				continue;
+			}
+			$rules[] = array(
+				'selector' => $selector,
+				'body'     => $body,
+			);
+		}
+
+		return $rules;
+	}
+
+	/**
+	 * Find a CSS block end offset.
+	 *
+	 * @param string $css CSS.
+	 * @param int    $offset Body start offset.
+	 * @return int|null Closing brace offset.
+	 */
+	private function find_css_block_end( string $css, int $offset ): ?int {
+		$depth = 1;
+		$length = strlen($css);
+		for ( $i = $offset; $i < $length; $i++ ) {
+			if ( '{' === $css[ $i ] ) {
+				++$depth;
+			} elseif ( '}' === $css[ $i ] ) {
+				--$depth;
+				if ( 0 === $depth ) {
+					return $i;
+				}
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Collect classes from source rules that position visual overlays absolutely.
+	 *
+	 * @param string $css CSS.
+	 * @return array<int,string> Class names.
+	 */
+	private function absolute_position_classes_from_css( string $css ): array {
+		$classes = array();
+		foreach ( $this->css_rule_blocks($css) as $rule ) {
+			if ( ! preg_match('/(?:^|;)\s*position\s*:\s*absolute\s*(?:;|$)/i', $rule['body']) ) {
+				continue;
+			}
+			foreach ( explode(',', $rule['selector']) as $selector ) {
+				$classes = array_merge($classes, $this->selector_terminal_classes(trim($selector)));
+			}
+		}
+
+		sort($classes, SORT_STRING);
+		return array_values(array_unique($classes));
+	}
+
+	/**
+	 * Collect classes from source rules hidden until JavaScript reveal.
+	 *
+	 * @param string $css CSS.
+	 * @return array<int,string> Class names.
+	 */
+	private function reveal_animation_classes_from_css( string $css ): array {
+		$classes = array();
+		foreach ( $this->css_rule_blocks($css) as $rule ) {
+			$opacity = $this->css_declaration_value($rule['body'], 'opacity');
+			$transform = $this->css_declaration_value($rule['body'], 'transform');
+			if ( null === $opacity || ! preg_match('/^0(?:\.0+)?%?$/', trim(preg_replace('/\s*!important\s*$/i', '', $opacity) ?? $opacity)) || null === $transform || preg_match('/^none\s*(?:!important\s*)?$/i', $transform) ) {
+				continue;
+			}
+			foreach ( explode(',', $rule['selector']) as $selector ) {
+				$classes = array_merge($classes, $this->selector_terminal_classes(trim($selector)));
+			}
+		}
+
+		sort($classes, SORT_STRING);
+		return array_values(array_unique($classes));
+	}
+
+	/**
+	 * Extract one CSS declaration value from a rule body.
+	 *
+	 * @param string $body     Declaration body.
+	 * @param string $property Property name.
+	 * @return string|null Value.
+	 */
+	private function css_declaration_value( string $body, string $property ): ?string {
+		if ( ! preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . '\s*:\s*([^;]+)\s*(?:;|$)/i', $body, $match) ) {
+			return null;
+		}
+
+		return trim($match[1]);
+	}
+
+	/**
+	 * Extract terminal class names from a selector.
+	 *
+	 * @param string $selector CSS selector.
+	 * @return array<int,string> Class names.
+	 */
+	private function selector_terminal_classes( string $selector ): array {
+		if ( '' === $selector || ! preg_match('/([^\s>+~]+)(?::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?)*\s*$/', $selector, $selector_match) ) {
+			return array();
+		}
+		if ( ! preg_match_all('/\.([A-Za-z_-][A-Za-z0-9_-]*)/', $selector_match[1], $class_matches) ) {
+			return array();
+		}
+
+		return array_values(array_unique($class_matches[1]));
 	}
 
 	/**
@@ -1509,6 +1939,7 @@ class Block_Artifact_Compiler {
 						'asset_references'  => $conversion['asset_references'],
 						'svg_icon_artifacts' => $conversion['svg_icon_artifacts'],
 						'navigation_candidates' => $conversion['navigation_candidates'],
+						'visual_repair_metadata' => $conversion['visual_repair_metadata'],
 						'selector_provenance' => $conversion['selector_provenance'],
 						'diagnostics'       => $document_diagnostics,
 						'provenance'        => $file['provenance'],
@@ -1566,6 +1997,7 @@ class Block_Artifact_Compiler {
 					'asset_references' => $conversion['asset_references'],
 					'svg_icon_artifacts' => $conversion['svg_icon_artifacts'],
 					'navigation_candidates' => $conversion['navigation_candidates'],
+					'visual_repair_metadata' => $conversion['visual_repair_metadata'],
 					'selector_provenance' => $conversion['selector_provenance'],
 					'diagnostics'  => $document_diagnostics,
 					'provenance'   => $file['provenance'],

@@ -313,6 +313,18 @@ if ( ! function_exists( 'html_to_blocks_convert_fragment' ) ) {
 					),
 				),
 			) : array(),
+			'visual_repair_metadata' => array(
+				'schema'     => 'html-to-blocks-converter/visual-repair-metadata/v1',
+				'categories' => array(
+					'groups'     => array( array( 'path' => '0', 'block_name' => 'core/group', 'class_name' => 'content-shell', 'classes' => array( 'content-shell' ), 'tag_name' => 'main' ) ),
+					'images'     => array( array( 'path' => '0.1', 'block_name' => 'core/image', 'class_name' => 'brand-logo', 'classes' => array( 'brand-logo' ), 'tag_name' => '' ) ),
+					'forms'      => array( array( 'path' => '0.2', 'block_name' => 'core/html', 'class_name' => 'newsletter-form', 'classes' => array( 'newsletter-form' ), 'tag_name' => 'form' ) ),
+					'navigation' => array( array( 'path' => '0.3', 'block_name' => 'core/group', 'class_name' => 'primary-nav', 'classes' => array( 'primary-nav' ), 'tag_name' => 'nav' ) ),
+					'buttons'    => array( array( 'path' => '0.4', 'block_name' => 'core/button', 'class_name' => 'btn cta-button', 'classes' => array( 'btn', 'cta-button' ), 'tag_name' => '' ) ),
+					'decorative' => array( array( 'path' => '0.5', 'block_name' => 'core/group', 'class_name' => 'glow-orb', 'classes' => array( 'glow-orb' ), 'tag_name' => '' ) ),
+					'fallbacks'  => array(),
+				),
+			),
 			'selector_provenance'   => str_contains( $html, '<nav' ) ? array(
 				array(
 					'source'          => array(
@@ -339,8 +351,9 @@ if ( ! function_exists( 'html_to_blocks_convert_fragment' ) ) {
 $h2bc_result = bac_compile_website_artifact(
 	array(
 		'files' => array(
-			'home.html'  => '<!doctype html><html><body><header><nav aria-label="Primary"><a href="/">Home</a></nav><img src="assets/logo.svg" alt=""></header><main><h1>Home</h1></main></body></html>',
+			'home.html'  => '<!doctype html><html><body><header><nav aria-label="Primary"><a href="/">Home</a></nav><img src="assets/logo.svg" alt=""></header><main><h1>Home</h1><form class="newsletter-form"><button>Join</button></form><div class="glow-orb"></div><a class="btn cta-button" href="/book/">Book</a></main></body></html>',
 			'about.html' => '<!doctype html><html><body><header><nav aria-label="Primary"><a href="/">Home</a></nav><img src="assets/logo.svg" alt=""></header><main><h1>About</h1></main></body></html>',
+			'style.css'  => 'nav{display:flex}.btn{background:#111;color:#fff}.glow-orb{position:absolute}.newsletter-form{display:grid}.reveal{opacity:0;transform:translateY(1rem)}',
 		),
 	)
 );
@@ -354,6 +367,21 @@ $assert( 'nav[aria-label="Primary"]' === ( $h2bc_result['wordpress_artifacts']['
 $assert( ! empty( $h2bc_result['wordpress_artifacts']['documents'][0]['asset_references'] ?? array() ), 'document artifacts preserve H2BC asset references' );
 $assert( 'nav[aria-label="Primary"]' === ( $h2bc_result['wordpress_artifacts']['documents'][0]['selector_provenance'][0]['source']['selector'] ?? '' ), 'document artifacts preserve H2BC selector provenance' );
 $assert( ! empty( $h2bc_result['wordpress_artifacts']['template_parts'][0]['navigation_candidates'] ?? array() ), 'template part artifacts preserve H2BC navigation candidates' );
+$repair = $h2bc_result['wordpress_artifacts']['visual_repair'] ?? array();
+$repair_metadata = $h2bc_result['wordpress_artifacts']['visual_repair_metadata'] ?? array();
+$repair_styles = $repair['styles'] ?? array();
+$repair_css = implode( "\n", array_map( static fn ( array $style ): string => (string) ( $style['content'] ?? '' ), $repair_styles ) );
+$assert( 'block-artifact-compiler/visual-repair-artifacts/v1' === ( $repair['schema'] ?? '' ), 'BAC exposes visual repair artifact schema' );
+$assert( ! empty( $repair_metadata['categories']['groups'] ?? array() ), 'BAC preserves group repair metadata' );
+$assert( ! empty( $repair_metadata['categories']['images'] ?? array() ), 'BAC preserves image repair metadata' );
+$assert( ! empty( $repair_metadata['categories']['forms'] ?? array() ), 'BAC preserves form repair metadata' );
+$assert( ! empty( $repair_metadata['categories']['navigation'] ?? array() ), 'BAC preserves navigation repair metadata' );
+$assert( ! empty( $repair_metadata['categories']['buttons'] ?? array() ), 'BAC preserves button repair metadata' );
+$assert( ! empty( $repair_metadata['categories']['decorative'] ?? array() ), 'BAC preserves decorative repair metadata' );
+$assert( str_contains( $repair_css, '.wp-block-group.is-layout-flow' ), 'BAC emits group layout repair CSS', $repair_css );
+$assert( str_contains( $repair_css, '.wp-block-group.primary-nav' ), 'BAC emits navigation selector bridge CSS', $repair_css );
+$assert( str_contains( $repair_css, '.wp-block-button.btn .wp-block-button__link' ), 'BAC emits button wrapper bridge CSS', $repair_css );
+$assert( str_contains( $repair_css, '.editor-styles-wrapper .wp-block-group.glow-orb' ), 'BAC emits decorative editor repair CSS', $repair_css );
 $assert( 'nav[aria-label="Primary"]' === ( $h2bc_result['wordpress_artifacts']['template_parts'][0]['selector_provenance'][0]['source']['selector'] ?? '' ), 'template part artifacts preserve H2BC selector provenance' );
 
 $inline_icon_result = bac_compile_website_artifact(
