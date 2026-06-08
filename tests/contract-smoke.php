@@ -12,7 +12,9 @@ $assert = static function ( bool $condition, string $message, string $detail = '
 		return;
 	}
 
-	fwrite( STDERR, 'FAIL: ' . $message . ( '' !== $detail ? ' - ' . $detail : '' ) . PHP_EOL );
+	$failure = 'FAIL: ' . $message . ( '' !== $detail ? ' - ' . $detail : '' ) . PHP_EOL;
+	fwrite( STDOUT, $failure );
+	fwrite( STDERR, $failure );
 	exit( 1 );
 };
 
