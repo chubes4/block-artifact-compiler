@@ -538,10 +538,13 @@ class Block_Artifact_Compiler {
 			$metadata['meta']    = $this->head_element_attributes($head, 'meta', array( 'charset', 'name', 'property', 'http-equiv', 'content' ));
 			$metadata['links']   = $this->head_element_attributes($head, 'link', array( 'rel', 'href', 'as', 'type', 'media', 'crossorigin', 'integrity' ));
 			$metadata['styles']  = $this->head_inline_contents($head, 'style');
-			$metadata['scripts'] = $this->head_script_contracts($head);
+			$metadata['scripts'] = $this->document_script_contracts($head, 'head', false);
 		}
 
 		$body = $doc->getElementsByTagName('body')->item(0);
+		if ( $body instanceof DOMElement ) {
+			$metadata['scripts'] = array_merge($metadata['scripts'], $this->document_script_contracts($body, 'body', true));
+		}
 		$body_html = $body instanceof DOMElement ? $this->inner_html($doc, $body) : $this->document_without_head($doc);
 
 		return array(
@@ -634,14 +637,16 @@ class Block_Artifact_Compiler {
 	}
 
 	/**
-	 * Collect script metadata from the document head.
+	 * Collect script metadata from document-level script tags.
 	 *
-	 * @param DOMElement $head Head element.
+	 * @param DOMElement $root      Root element.
+	 * @param string     $placement Script placement.
+	 * @param bool       $remove    Whether collected scripts should be removed from the DOM.
 	 * @return array<int,array<string,mixed>>
 	 */
-	private function head_script_contracts( DOMElement $head ): array {
+	private function document_script_contracts( DOMElement $root, string $placement, bool $remove ): array {
 		$scripts = array();
-		foreach ( $head->getElementsByTagName('script') as $node ) {
+		foreach ( iterator_to_array($root->getElementsByTagName('script')) as $node ) {
 			if ( ! $node instanceof DOMElement ) {
 				continue;
 			}
@@ -650,7 +655,7 @@ class Block_Artifact_Compiler {
 			foreach ( array( 'src', 'type', 'defer', 'async', 'crossorigin', 'integrity' ) as $attribute ) {
 				if ( $node->hasAttribute($attribute) ) {
 					$value = trim($node->getAttribute($attribute));
-					$script[ $attribute ] = '' === $value && in_array($attribute, array( 'defer', 'async' ), true) ? true : $value;
+					$script[ $attribute ] = in_array($attribute, array( 'defer', 'async' ), true) ? true : $value;
 				}
 			}
 
@@ -663,7 +668,12 @@ class Block_Artifact_Compiler {
 			}
 
 			if ( ! empty($script) ) {
+				$script['placement'] = $placement;
 				$scripts[] = $script;
+			}
+
+			if ( $remove && $node->parentNode instanceof DOMNode ) {
+				$node->parentNode->removeChild($node);
 			}
 		}
 

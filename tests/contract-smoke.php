@@ -169,7 +169,7 @@ $full_document = bac_compile_website_artifact(
 		'files' => array(
 			array(
 				'path'    => 'index.html',
-				'content' => '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ember & Rye</title><meta name="description" content="Wood-fired bakery"><link rel="stylesheet" href="/assets/site.css"></head><body><header class="site-header"><a href="/">Ember & Rye</a></header><main><section class="hero"><h1>Fire, flour, patience.</h1><p>Small-batch loaves.</p></section></main></body></html>',
+				'content' => '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ember & Rye</title><meta name="description" content="Wood-fired bakery"><link rel="stylesheet" href="/assets/site.css"><script src="/assets/head.js" defer></script></head><body><header class="site-header"><a href="/">Ember & Rye</a></header><main><section class="hero"><h1>Fire, flour, patience.</h1><p>Small-batch loaves.</p></section></main><script src="/assets/body.js" async></script></body></html>',
 			),
 		),
 	),
@@ -182,12 +182,19 @@ $full_document_regions = $full_document['wordpress_artifacts']['regions'] ?? arr
 $assert( ! str_contains( $full_document_markup, '<meta' ), 'full document meta tags are not emitted as block content', $full_document_markup );
 $assert( ! str_contains( $full_document_markup, '<title' ), 'full document title tag is not emitted as block content', $full_document_markup );
 $assert( ! str_contains( $full_document_markup, '<link' ), 'full document link tags are not emitted as block content', $full_document_markup );
+$assert( ! str_contains( $full_document_markup, '<script' ), 'full document script tags are not emitted as block content', $full_document_markup );
 $assert( str_contains( $full_document_markup, 'Fire, flour, patience.' ), 'full document body content is preserved in block content', $full_document_markup );
 $assert( 'block-artifact-compiler/document-metadata/v1' === ( $full_document_metadata['schema'] ?? '' ), 'full document exposes metadata contract' );
 $assert( 'Ember & Rye' === ( $full_document_metadata['title'] ?? '' ), 'full document title is routed to metadata contract' );
 $assert( 'utf-8' === ( $full_document_metadata['meta'][0]['charset'] ?? '' ), 'charset meta is routed to metadata contract' );
 $assert( 'viewport' === ( $full_document_metadata['meta'][1]['name'] ?? '' ), 'viewport meta is routed to metadata contract' );
 $assert( '/assets/site.css' === ( $full_document_metadata['links'][0]['href'] ?? '' ), 'stylesheet link is routed to metadata contract' );
+$assert( '/assets/head.js' === ( $full_document_metadata['scripts'][0]['src'] ?? '' ), 'head script is routed to metadata contract' );
+$assert( 'head' === ( $full_document_metadata['scripts'][0]['placement'] ?? '' ), 'head script records placement' );
+$assert( true === ( $full_document_metadata['scripts'][0]['defer'] ?? null ), 'head script preserves boolean defer attribute' );
+$assert( '/assets/body.js' === ( $full_document_metadata['scripts'][1]['src'] ?? '' ), 'body script is routed to metadata contract' );
+$assert( 'body' === ( $full_document_metadata['scripts'][1]['placement'] ?? '' ), 'body script records placement' );
+$assert( true === ( $full_document_metadata['scripts'][1]['async'] ?? null ), 'body script preserves boolean async attribute' );
 $assert( 1 === count( $full_document_template_parts ), 'full document header compiles into a template part artifact' );
 $assert( 'header' === ( $full_document_template_parts[0]['slug'] ?? '' ), 'full document template part preserves header slug' );
 $assert( 1 === count( $full_document_template_parts[0]['source_paths'] ?? array() ), 'full document template part preserves source path' );
