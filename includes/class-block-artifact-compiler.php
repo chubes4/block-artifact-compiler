@@ -67,7 +67,8 @@ class Block_Artifact_Compiler {
 			$conversion['blocks']            = isset($documents['documents'][0]['blocks']) && is_array($documents['documents'][0]['blocks']) ? $documents['documents'][0]['blocks'] : array();
 			$conversion['report']            = isset($documents['documents'][0]['bfb_report']) && is_array($documents['documents'][0]['bfb_report']) ? $documents['documents'][0]['bfb_report'] : array();
 		}
-		$requirements = $this->build_artifact_requirements($conversion['serialized_blocks'], $block_types, $plugins);
+		$requirements   = $this->build_artifact_requirements($conversion['serialized_blocks'], $block_types, $plugins);
+		$template_parts = $this->template_part_artifacts($normalized, $options);
 
 		return array(
 			'schema'              => self::RESULT_SCHEMA,
@@ -92,6 +93,9 @@ class Block_Artifact_Compiler {
 				'block_tree'   => $this->block_tree_report($conversion['blocks'], $conversion['serialized_blocks']),
 				'document_metadata' => $entry_document['metadata'],
 				'site'         => $this->compiled_site_artifact($normalized, $documents['documents']),
+				'template_parts' => $template_parts,
+				'asset_references' => $this->compiled_asset_references($conversion, $documents['documents'], $template_parts),
+				'navigation_candidates' => $this->compiled_navigation_candidates($conversion, $documents['documents'], $template_parts),
 				'block_types'  => $block_types,
 				'plugins'      => $plugins,
 				'requirements' => $requirements,
@@ -691,7 +695,7 @@ class Block_Artifact_Compiler {
 	 * @param  string              $content Source content.
 	 * @param  string              $format  Source format.
 	 * @param  array<string,mixed> $options Compiler options.
-	 * @return array{serialized_blocks:string,blocks:array,diagnostics:array<int,array<string,mixed>>,report:array<string,mixed>}
+	 * @return array{serialized_blocks:string,blocks:array,diagnostics:array<int,array<string,mixed>>,report:array<string,mixed>,asset_references:array<int,array<string,mixed>>,navigation_candidates:array<int,array<string,mixed>>,fallbacks:array<int,array<string,mixed>>,metrics:array<string,mixed>}
 	 */
 	private function convert_content_to_blocks( string $content, string $format, array $options ): array {
 		$format = $this->normalize_fragment_format($format);
@@ -706,6 +710,36 @@ class Block_Artifact_Compiler {
 					'status' => 'success_native',
 					'source' => 'blocks',
 				),
+				'asset_references'      => array(),
+				'navigation_candidates' => array(),
+				'fallbacks'             => array(),
+				'metrics'               => array(),
+			);
+		}
+
+		if ( 'html' === $format && function_exists('html_to_blocks_convert_fragment') ) {
+			$result = html_to_blocks_convert_fragment($content, array_merge($options, array( 'context' => 'block_artifact_compiler' )));
+			$report = array(
+				'status'      => '' === trim((string) ( $result['block_markup'] ?? '' )) ? 'failed' : 'success_native',
+				'source'      => 'html',
+				'h2bc_result' => array(
+					'source'                     => isset($result['source']) && is_array($result['source']) ? $result['source'] : array(),
+					'metrics'                    => isset($result['metrics']) && is_array($result['metrics']) ? $result['metrics'] : array(),
+					'fallbacks'                  => isset($result['fallbacks']) && is_array($result['fallbacks']) ? $result['fallbacks'] : array(),
+					'asset_reference_count'       => isset($result['asset_references']) && is_array($result['asset_references']) ? count($result['asset_references']) : 0,
+					'navigation_candidate_count' => isset($result['navigation_candidates']) && is_array($result['navigation_candidates']) ? count($result['navigation_candidates']) : 0,
+				),
+			);
+
+			return array(
+				'serialized_blocks'     => (string) ( $result['block_markup'] ?? '' ),
+				'blocks'                => isset($result['blocks']) && is_array($result['blocks']) ? $result['blocks'] : array(),
+				'diagnostics'           => isset($result['diagnostics']) && is_array($result['diagnostics']) ? $result['diagnostics'] : array(),
+				'report'                => $report,
+				'asset_references'      => isset($result['asset_references']) && is_array($result['asset_references']) ? $result['asset_references'] : array(),
+				'navigation_candidates' => isset($result['navigation_candidates']) && is_array($result['navigation_candidates']) ? $result['navigation_candidates'] : array(),
+				'fallbacks'             => isset($result['fallbacks']) && is_array($result['fallbacks']) ? $result['fallbacks'] : array(),
+				'metrics'               => isset($result['metrics']) && is_array($result['metrics']) ? $result['metrics'] : array(),
 			);
 		}
 
@@ -721,6 +755,10 @@ class Block_Artifact_Compiler {
 				'blocks'            => function_exists('parse_blocks') && '' !== trim($block_markup) ? parse_blocks($block_markup) : array(),
 				'diagnostics'       => isset($report['diagnostics']) && is_array($report['diagnostics']) ? $report['diagnostics'] : array(),
 				'report'            => $report,
+				'asset_references'      => array(),
+				'navigation_candidates' => array(),
+				'fallbacks'             => array(),
+				'metrics'               => array(),
 			);
 		}
 
@@ -735,6 +773,10 @@ class Block_Artifact_Compiler {
 					'status' => 'failed',
 					'source' => $format,
 				),
+				'asset_references'      => array(),
+				'navigation_candidates' => array(),
+				'fallbacks'             => array(),
+				'metrics'               => array(),
 			);
 		}
 
@@ -748,6 +790,10 @@ class Block_Artifact_Compiler {
 				'status' => 'success_with_fallbacks',
 				'source' => $format,
 			),
+			'asset_references'      => array(),
+			'navigation_candidates' => array(),
+			'fallbacks'             => array(),
+			'metrics'               => array(),
 		);
 	}
 
@@ -773,6 +819,7 @@ class Block_Artifact_Compiler {
 	 * @return array<string,mixed> Compiled site artifact.
 	 */
 	private function compiled_site_artifact( array $artifact, array $documents ): array {
+		$shared_regions = $this->shared_region_contracts($artifact);
 		$pages = array_map(
 			static function ( array $document ): array {
 				return array(
@@ -791,7 +838,19 @@ class Block_Artifact_Compiler {
 		return array(
 			'schema'         => 'block-artifact-compiler/compiled-site/v1',
 			'pages'          => $pages,
-			'shared_regions' => $this->shared_region_contracts($artifact),
+			'shared_regions' => $shared_regions,
+			'template_parts' => array_map(
+				static function ( array $region ): array {
+					return array(
+						'slug'         => (string) ( $region['role'] ?? '' ),
+						'area'         => (string) ( $region['role'] ?? '' ),
+						'source_hash'  => (string) ( $region['source_hash'] ?? '' ),
+						'source_paths' => isset($region['source_paths']) && is_array($region['source_paths']) ? $region['source_paths'] : array(),
+						'artifact'     => 'wordpress_artifacts.template_parts',
+					);
+				},
+				array_values(array_filter($shared_regions, static fn ( array $region ): bool => in_array((string) ( $region['role'] ?? '' ), array( 'header', 'footer' ), true)))
+			),
 			'theme_assets'   => $this->theme_asset_contracts($artifact),
 			'provenance'     => array(
 				'source_hash' => hash('sha256', $this->artifact_hash_payload($artifact)),
@@ -820,6 +879,7 @@ class Block_Artifact_Compiler {
 						'source_paths'   => array(),
 						'source_hash'    => $region['hash'],
 						'source_excerpt' => $region['excerpt'],
+						'source_html'    => $region['html'],
 					);
 				}
 				$regions[ $key ]['source_paths'][] = $file['path'];
@@ -837,7 +897,7 @@ class Block_Artifact_Compiler {
 	/**
 	 * Extract region candidates from one HTML document.
 	 *
-	 * @return array<int,array{role:string,hash:string,excerpt:string}>
+	 * @return array<int,array{role:string,hash:string,excerpt:string,html:string}>
 	 */
 	private function html_region_candidates( string $html ): array {
 		if ( '' === trim($html) || ! class_exists('DOMDocument') ) {
@@ -868,6 +928,7 @@ class Block_Artifact_Compiler {
 				'role'    => $tag,
 				'hash'    => hash('sha256', $markup),
 				'excerpt' => substr(preg_replace('/\s+/', ' ', $markup) ?? $markup, 0, 240),
+				'html'    => $markup,
 			);
 		}
 
@@ -908,6 +969,137 @@ class Block_Artifact_Compiler {
 		}
 
 		return $assets;
+	}
+
+	/**
+	 * Compile reusable template-part artifacts from shared header/footer regions.
+	 *
+	 * @param  array{files:array<int,array<string,mixed>>} $artifact Normalized artifact.
+	 * @param  array<string,mixed>                         $options  Conversion options.
+	 * @return array<int,array<string,mixed>> Template part artifacts.
+	 */
+	private function template_part_artifacts( array $artifact, array $options ): array {
+		$template_parts = array();
+		foreach ( $this->shared_region_contracts($artifact) as $region ) {
+			$role = (string) ( $region['role'] ?? '' );
+			if ( ! in_array($role, array( 'header', 'footer' ), true) ) {
+				continue;
+			}
+
+			$source_html = (string) ( $region['source_html'] ?? '' );
+			$conversion  = $this->convert_content_to_blocks($source_html, 'html', $options);
+
+			$template_parts[] = array(
+				'schema'                => 'block-artifact-compiler/template-part/v1',
+				'slug'                  => $role,
+				'area'                  => $role,
+				'source_paths'          => isset($region['source_paths']) && is_array($region['source_paths']) ? $region['source_paths'] : array(),
+				'source_hash'           => (string) ( $region['source_hash'] ?? '' ),
+				'source_excerpt'        => (string) ( $region['source_excerpt'] ?? '' ),
+				'block_markup'          => $conversion['serialized_blocks'],
+				'blocks'                => $conversion['blocks'],
+				'diagnostics'           => $conversion['diagnostics'],
+				'bfb_report'            => $conversion['report'],
+				'asset_references'      => $conversion['asset_references'],
+				'navigation_candidates' => $conversion['navigation_candidates'],
+			);
+		}
+
+		return $template_parts;
+	}
+
+	/**
+	 * Merge entry, document, and template-part asset references.
+	 *
+	 * @param array<string,mixed>            $entry_conversion Entry conversion result.
+	 * @param array<int,array<string,mixed>> $documents        Document artifacts.
+	 * @param array<int,array<string,mixed>> $template_parts   Template part artifacts.
+	 * @return array<int,array<string,mixed>> Asset references.
+	 */
+	private function compiled_asset_references( array $entry_conversion, array $documents, array $template_parts ): array {
+		return $this->dedupe_reference_rows(array_merge(
+			$this->reference_rows_from_conversion($entry_conversion, 'entry'),
+			$this->reference_rows_from_artifacts($documents, 'document', 'asset_references'),
+			$this->reference_rows_from_artifacts($template_parts, 'template_part', 'asset_references')
+		));
+	}
+
+	/**
+	 * Merge entry, document, and template-part navigation candidates.
+	 *
+	 * @param array<string,mixed>            $entry_conversion Entry conversion result.
+	 * @param array<int,array<string,mixed>> $documents        Document artifacts.
+	 * @param array<int,array<string,mixed>> $template_parts   Template part artifacts.
+	 * @return array<int,array<string,mixed>> Navigation candidates.
+	 */
+	private function compiled_navigation_candidates( array $entry_conversion, array $documents, array $template_parts ): array {
+		return $this->dedupe_reference_rows(array_merge(
+			$this->reference_rows_from_conversion($entry_conversion, 'entry', 'navigation_candidates'),
+			$this->reference_rows_from_artifacts($documents, 'document', 'navigation_candidates'),
+			$this->reference_rows_from_artifacts($template_parts, 'template_part', 'navigation_candidates')
+		));
+	}
+
+	/**
+	 * Build reference rows from one conversion result.
+	 *
+	 * @param array<string,mixed> $conversion Conversion result.
+	 * @param string              $scope      Reference scope.
+	 * @param string              $field      Field to read.
+	 * @return array<int,array<string,mixed>> Reference rows.
+	 */
+	private function reference_rows_from_conversion( array $conversion, string $scope, string $field = 'asset_references' ): array {
+		$items = isset($conversion[ $field ]) && is_array($conversion[ $field ]) ? $conversion[ $field ] : array();
+		return array_map(
+			static function ( array $item ) use ( $scope ): array {
+				$item['scope'] = $scope;
+				return $item;
+			},
+			$items
+		);
+	}
+
+	/**
+	 * Build reference rows from compiled artifacts.
+	 *
+	 * @param array<int,array<string,mixed>> $artifacts Artifacts.
+	 * @param string                         $scope     Reference scope.
+	 * @param string                         $field     Field to read.
+	 * @return array<int,array<string,mixed>> Reference rows.
+	 */
+	private function reference_rows_from_artifacts( array $artifacts, string $scope, string $field ): array {
+		$rows = array();
+		foreach ( $artifacts as $artifact ) {
+			$items = isset($artifact[ $field ]) && is_array($artifact[ $field ]) ? $artifact[ $field ] : array();
+			foreach ( $items as $item ) {
+				if ( ! is_array($item) ) {
+					continue;
+				}
+
+				$item['scope']       = $scope;
+				$item['source_path'] = (string) ( $artifact['source_path'] ?? $artifact['slug'] ?? '' );
+				$rows[]              = $item;
+			}
+		}
+
+		return $rows;
+	}
+
+	/**
+	 * Dedupe reference rows by stable JSON payload.
+	 *
+	 * @param array<int,array<string,mixed>> $rows Reference rows.
+	 * @return array<int,array<string,mixed>> Deduped rows.
+	 */
+	private function dedupe_reference_rows( array $rows ): array {
+		$deduped = array();
+		foreach ( $rows as $row ) {
+			$encoded = bac_json_encode($row);
+			$key     = false === $encoded ? hash('sha256', serialize($row)) : hash('sha256', $encoded);
+			$deduped[ $key ] = $row;
+		}
+
+		return array_values($deduped);
 	}
 
 	/**
@@ -1154,6 +1346,8 @@ class Block_Artifact_Compiler {
 					'block_markup'      => $conversion['serialized_blocks'],
 					'blocks'            => $conversion['blocks'],
 					'bfb_report'        => $conversion['report'],
+					'asset_references'  => $conversion['asset_references'],
+					'navigation_candidates' => $conversion['navigation_candidates'],
 					'diagnostics'       => $document_diagnostics,
 					'provenance'        => $file['provenance'],
 				);
@@ -1190,6 +1384,8 @@ class Block_Artifact_Compiler {
 				'block_markup' => $conversion['serialized_blocks'],
 				'blocks'       => $conversion['blocks'],
 				'bfb_report'   => $conversion['report'],
+				'asset_references' => $conversion['asset_references'],
+				'navigation_candidates' => $conversion['navigation_candidates'],
 				'diagnostics'  => $document_diagnostics,
 				'provenance'   => $file['provenance'],
 			);

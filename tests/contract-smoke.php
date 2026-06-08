@@ -237,8 +237,55 @@ $shared_chrome = bac_compile_website_artifact(
 $shared_regions = $shared_chrome['wordpress_artifacts']['site']['shared_regions'] ?? array();
 $assert( ! empty( array_filter( $shared_regions, static fn ( array $region ): bool => 'header' === ( $region['role'] ?? '' ) && 2 === count( $region['source_paths'] ?? array() ) ) ), 'compiled site artifact exposes shared header chrome candidates' );
 $assert( ! empty( array_filter( $shared_regions, static fn ( array $region ): bool => 'footer' === ( $region['role'] ?? '' ) && 2 === count( $region['source_paths'] ?? array() ) ) ), 'compiled site artifact exposes shared footer chrome candidates' );
+$shared_template_parts = $shared_chrome['wordpress_artifacts']['template_parts'] ?? array();
+$assert( 2 === count( $shared_template_parts ), 'shared header/footer regions compile into template part artifacts' );
+$assert( 'block-artifact-compiler/template-part/v1' === ( $shared_template_parts[0]['schema'] ?? '' ), 'template part artifact exposes schema' );
+$assert( 2 === count( $shared_template_parts[0]['source_paths'] ?? array() ), 'template part artifact preserves shared source paths' );
+$assert( str_contains( (string) ( $shared_template_parts[0]['block_markup'] ?? '' ), '<!-- wp:html -->' ), 'template part artifact exposes fallback block markup when H2BC is unavailable' );
+$assert( 2 === count( $shared_chrome['wordpress_artifacts']['site']['template_parts'] ?? array() ), 'compiled site artifact links template part artifacts' );
 $assert( 1 === count( $shared_chrome['wordpress_artifacts']['site']['theme_assets']['styles'] ?? array() ), 'compiled site artifact exposes theme style assets' );
 $assert( 1 === count( $shared_chrome['wordpress_artifacts']['site']['theme_assets']['scripts'] ?? array() ), 'compiled site artifact exposes theme script assets' );
+
+if ( ! function_exists( 'html_to_blocks_convert_fragment' ) ) {
+	function html_to_blocks_convert_fragment( string $html, array $args = array() ): array {
+		unset( $args );
+
+		return array(
+			'block_markup'          => '<!-- wp:paragraph --><p>' . strip_tags( $html ) . '</p><!-- /wp:paragraph -->',
+			'blocks'                => array(),
+			'diagnostics'           => array(),
+			'fallbacks'             => array(),
+			'asset_references'      => str_contains( $html, 'logo.svg' ) ? array( array( 'attribute' => 'src', 'url' => 'assets/logo.svg' ) ) : array(),
+			'navigation_candidates' => str_contains( $html, '<nav' ) ? array(
+				array(
+					'source' => 'nav[0]',
+					'label'  => 'Primary',
+					'links'  => array(
+						array( 'url' => '/', 'label' => 'Home', 'class_name' => '' ),
+					),
+				),
+			) : array(),
+			'metrics'               => array( 'total_ms' => 1.0 ),
+			'source'                => array( 'bytes' => strlen( $html ), 'context' => 'block_artifact_compiler' ),
+		);
+	}
+}
+
+$h2bc_result = bac_compile_website_artifact(
+	array(
+		'files' => array(
+			'home.html'  => '<!doctype html><html><body><header><nav aria-label="Primary"><a href="/">Home</a></nav><img src="assets/logo.svg" alt=""></header><main><h1>Home</h1></main></body></html>',
+			'about.html' => '<!doctype html><html><body><header><nav aria-label="Primary"><a href="/">Home</a></nav><img src="assets/logo.svg" alt=""></header><main><h1>About</h1></main></body></html>',
+		),
+	)
+);
+$assert( 'success' === ( $h2bc_result['status'] ?? '' ), 'H2BC result API path compiles without fallback policy' );
+$assert( 1 === ( $h2bc_result['bfb_report']['h2bc_result']['asset_reference_count'] ?? null ), 'BAC report includes H2BC asset reference count' );
+$assert( 1 === ( $h2bc_result['bfb_report']['h2bc_result']['navigation_candidate_count'] ?? null ), 'BAC report includes H2BC navigation candidate count' );
+$assert( ! empty( $h2bc_result['wordpress_artifacts']['asset_references'] ?? array() ), 'BAC exposes merged H2BC asset references' );
+$assert( ! empty( $h2bc_result['wordpress_artifacts']['navigation_candidates'] ?? array() ), 'BAC exposes merged H2BC navigation candidates' );
+$assert( ! empty( $h2bc_result['wordpress_artifacts']['documents'][0]['asset_references'] ?? array() ), 'document artifacts preserve H2BC asset references' );
+$assert( ! empty( $h2bc_result['wordpress_artifacts']['template_parts'][0]['navigation_candidates'] ?? array() ), 'template part artifacts preserve H2BC navigation candidates' );
 
 $summary = bac_summarize_result( $messy );
 $assert( ( $summary['component_count'] ?? 0 ) > 0, 'summary exposes component count' );
