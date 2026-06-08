@@ -69,6 +69,7 @@ class Block_Artifact_Compiler {
 		}
 		$requirements   = $this->build_artifact_requirements($conversion['serialized_blocks'], $block_types, $plugins);
 		$template_parts = $this->template_part_artifacts($normalized, $entry_path, $options);
+		$regions        = $this->semantic_region_contracts($normalized);
 
 		return array(
 			'schema'              => self::RESULT_SCHEMA,
@@ -92,7 +93,8 @@ class Block_Artifact_Compiler {
 				'blocks'       => $conversion['blocks'],
 				'block_tree'   => $this->block_tree_report($conversion['blocks'], $conversion['serialized_blocks']),
 				'document_metadata' => $entry_document['metadata'],
-				'site'         => $this->compiled_site_artifact($normalized, $documents['documents'], $template_parts),
+				'site'         => $this->compiled_site_artifact($normalized, $documents['documents'], $template_parts, $regions),
+				'regions'      => $regions,
 				'template_parts' => $template_parts,
 				'asset_references' => $this->compiled_asset_references($conversion, $documents['documents'], $template_parts),
 				'navigation_candidates' => $this->compiled_navigation_candidates($conversion, $documents['documents'], $template_parts),
@@ -817,10 +819,11 @@ class Block_Artifact_Compiler {
 	 * @param  array{files:array<int,array<string,mixed>>} $artifact       Normalized artifact.
 	 * @param  array<int,array<string,mixed>>              $documents      Compiled document artifacts.
 	 * @param  array<int,array<string,mixed>>              $template_parts Template part artifacts.
+	 * @param  array<int,array<string,mixed>>              $regions        Semantic region artifacts.
 	 * @return array<string,mixed> Compiled site artifact.
 	 */
-	private function compiled_site_artifact( array $artifact, array $documents, array $template_parts ): array {
-		$shared_regions = $this->shared_region_contracts($artifact);
+	private function compiled_site_artifact( array $artifact, array $documents, array $template_parts, array $regions ): array {
+		$shared_regions = $this->shared_region_contracts($regions);
 		$pages = array_map(
 			static function ( array $document ): array {
 				return array(
@@ -839,6 +842,17 @@ class Block_Artifact_Compiler {
 		return array(
 			'schema'         => 'block-artifact-compiler/compiled-site/v1',
 			'pages'          => $pages,
+			'regions'        => array_map(
+				static function ( array $region ): array {
+					return array(
+						'role'         => (string) ( $region['role'] ?? '' ),
+						'source_hash'  => (string) ( $region['source_hash'] ?? '' ),
+						'source_paths' => isset($region['source_paths']) && is_array($region['source_paths']) ? $region['source_paths'] : array(),
+						'artifact'     => 'wordpress_artifacts.regions',
+					);
+				},
+				$regions
+			),
 			'shared_regions' => $shared_regions,
 			'template_parts' => array_map(
 				static function ( array $template_part ): array {
@@ -860,27 +874,27 @@ class Block_Artifact_Compiler {
 	}
 
 	/**
-	 * Extract conservative shared region candidates from HTML documents.
+	 * Extract conservative shared region candidates from semantic region contracts.
 	 *
-	 * @param  array{files:array<int,array<string,mixed>>} $artifact Normalized artifact.
+	 * @param  array<int,array<string,mixed>> $regions Semantic region contracts.
 	 * @return array<int,array<string,mixed>> Shared region contracts.
 	 */
-	private function shared_region_contracts( array $artifact ): array {
+	private function shared_region_contracts( array $regions ): array {
 		return array_values(
 			array_filter(
-				$this->chrome_region_contracts($artifact),
+				$regions,
 				static fn ( array $region ): bool => count($region['source_paths']) > 1
 			)
 		);
 	}
 
 	/**
-	 * Extract reusable region candidates from HTML documents.
+	 * Extract semantic region contracts from HTML documents.
 	 *
 	 * @param  array{files:array<int,array<string,mixed>>} $artifact Normalized artifact.
 	 * @return array<int,array<string,mixed>> Region contracts grouped by role and source hash.
 	 */
-	private function chrome_region_contracts( array $artifact ): array {
+	private function semantic_region_contracts( array $artifact ): array {
 		$regions = array();
 		foreach ( $artifact['files'] as $file ) {
 			if ( 'html' !== $file['kind'] || ! empty($file['binary']) ) {
@@ -925,22 +939,23 @@ class Block_Artifact_Compiler {
 		}
 
 		$regions = array();
-		foreach ( array( 'header', 'footer', 'main' ) as $tag ) {
-			$node = $doc->getElementsByTagName($tag)->item(0);
-			if ( ! $node instanceof DOMElement ) {
-				continue;
-			}
-			$markup = trim((string) $doc->saveHTML($node));
-			if ( '' === $markup ) {
-				continue;
-			}
+		foreach ( array( 'header', 'nav', 'main', 'article', 'section', 'aside', 'footer' ) as $tag ) {
+			foreach ( $doc->getElementsByTagName($tag) as $node ) {
+				if ( ! $node instanceof DOMElement ) {
+					continue;
+				}
+				$markup = trim((string) $doc->saveHTML($node));
+				if ( '' === $markup ) {
+					continue;
+				}
 
-			$regions[] = array(
-				'role'    => $tag,
-				'hash'    => hash('sha256', $markup),
-				'excerpt' => substr(preg_replace('/\s+/', ' ', $markup) ?? $markup, 0, 240),
-				'html'    => $markup,
-			);
+				$regions[] = array(
+					'role'    => $tag,
+					'hash'    => hash('sha256', $markup),
+					'excerpt' => substr(preg_replace('/\s+/', ' ', $markup) ?? $markup, 0, 240),
+					'html'    => $markup,
+				);
+			}
 		}
 
 		return $regions;
@@ -1025,7 +1040,7 @@ class Block_Artifact_Compiler {
 	 */
 	private function canonical_template_part_regions( array $artifact, string $entry_path ): array {
 		$selected = array();
-		foreach ( $this->chrome_region_contracts($artifact) as $region ) {
+		foreach ( $this->semantic_region_contracts($artifact) as $region ) {
 			$role = (string) ( $region['role'] ?? '' );
 			if ( ! in_array($role, array( 'header', 'footer' ), true) ) {
 				continue;

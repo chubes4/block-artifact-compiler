@@ -178,6 +178,7 @@ $full_document = bac_compile_website_artifact(
 $full_document_markup = (string) ( $full_document['wordpress_artifacts']['block_markup'] ?? '' );
 $full_document_metadata = $full_document['wordpress_artifacts']['document_metadata'] ?? array();
 $full_document_template_parts = $full_document['wordpress_artifacts']['template_parts'] ?? array();
+$full_document_regions = $full_document['wordpress_artifacts']['regions'] ?? array();
 $assert( ! str_contains( $full_document_markup, '<meta' ), 'full document meta tags are not emitted as block content', $full_document_markup );
 $assert( ! str_contains( $full_document_markup, '<title' ), 'full document title tag is not emitted as block content', $full_document_markup );
 $assert( ! str_contains( $full_document_markup, '<link' ), 'full document link tags are not emitted as block content', $full_document_markup );
@@ -191,6 +192,9 @@ $assert( 1 === count( $full_document_template_parts ), 'full document header com
 $assert( 'header' === ( $full_document_template_parts[0]['slug'] ?? '' ), 'full document template part preserves header slug' );
 $assert( 1 === count( $full_document_template_parts[0]['source_paths'] ?? array() ), 'full document template part preserves source path' );
 $assert( 1 === count( $full_document['wordpress_artifacts']['site']['template_parts'] ?? array() ), 'compiled site links full document template part artifact' );
+$assert( ! empty( array_filter( $full_document_regions, static fn ( array $region ): bool => 'header' === ( $region['role'] ?? '' ) ) ), 'full document exposes semantic header region evidence' );
+$assert( ! empty( array_filter( $full_document_regions, static fn ( array $region ): bool => 'main' === ( $region['role'] ?? '' ) ) ), 'full document exposes semantic main region evidence' );
+$assert( count( $full_document_regions ) === count( $full_document['wordpress_artifacts']['site']['regions'] ?? array() ), 'compiled site links semantic region artifacts' );
 
 $multi_page = bac_compile_website_artifact(
 	array(
@@ -240,6 +244,9 @@ $shared_chrome = bac_compile_website_artifact(
 	$fallback_options
 );
 $shared_regions = $shared_chrome['wordpress_artifacts']['site']['shared_regions'] ?? array();
+$semantic_regions = $shared_chrome['wordpress_artifacts']['regions'] ?? array();
+$site_regions = $shared_chrome['wordpress_artifacts']['site']['regions'] ?? array();
+$assert( count( $semantic_regions ) === count( $site_regions ), 'compiled site links all semantic region artifacts' );
 $assert( ! empty( array_filter( $shared_regions, static fn ( array $region ): bool => 'header' === ( $region['role'] ?? '' ) && 2 === count( $region['source_paths'] ?? array() ) ) ), 'compiled site artifact exposes shared header chrome candidates' );
 $assert( ! empty( array_filter( $shared_regions, static fn ( array $region ): bool => 'footer' === ( $region['role'] ?? '' ) && 2 === count( $region['source_paths'] ?? array() ) ) ), 'compiled site artifact exposes shared footer chrome candidates' );
 $shared_template_parts = $shared_chrome['wordpress_artifacts']['template_parts'] ?? array();
