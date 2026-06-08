@@ -98,6 +98,7 @@ class Block_Artifact_Compiler {
 				'regions'      => $regions,
 				'template_parts' => $template_parts,
 				'asset_references' => $this->compiled_asset_references($conversion, $documents['documents'], $template_parts),
+				'svg_icon_artifacts' => $this->compiled_svg_icon_artifacts($conversion, $documents['documents'], $template_parts),
 				'navigation_candidates' => $this->compiled_navigation_candidates($conversion, $documents['documents'], $template_parts),
 				'visual_repair' => $visual_repair,
 				'visual_repair_metadata' => $visual_repair['metadata'],
@@ -174,6 +175,7 @@ class Block_Artifact_Compiler {
 			'custom_block_requirement_count' => isset($requirements['custom_blocks']) && is_array($requirements['custom_blocks']) ? count($requirements['custom_blocks']) : 0,
 			'component_count'           => count($components),
 			'file_count'                => count($files),
+			'svg_icon_artifact_count'   => isset($artifacts['svg_icon_artifacts']) && is_array($artifacts['svg_icon_artifacts']) ? count($artifacts['svg_icon_artifacts']) : 0,
 			'diagnostic_count'          => count($diagnostics),
 		);
 	}
@@ -208,6 +210,7 @@ class Block_Artifact_Compiler {
 			}
 			$entrypoints[ $path ] = true;
 		}
+		$declared_entrypoints = array_keys($entrypoints);
 
 		foreach ( $raw_files as $index => $file ) {
 			if ( count($files) >= $limits['max_files'] ) {
@@ -318,6 +321,7 @@ class Block_Artifact_Compiler {
 			'rejected_count' => $rejected,
 			'bytes'          => $total_bytes,
 			'entrypoints'    => array_keys($entrypoints),
+			'declared_entrypoints' => $declared_entrypoints,
 		);
 	}
 
@@ -700,7 +704,7 @@ class Block_Artifact_Compiler {
 	 * @param  string              $content Source content.
 	 * @param  string              $format  Source format.
 	 * @param  array<string,mixed> $options Compiler options.
-	 * @return array{serialized_blocks:string,blocks:array,diagnostics:array<int,array<string,mixed>>,report:array<string,mixed>,asset_references:array<int,array<string,mixed>>,navigation_candidates:array<int,array<string,mixed>>,visual_repair_metadata:array<string,mixed>,fallbacks:array<int,array<string,mixed>>,metrics:array<string,mixed>}
+	 * @return array{serialized_blocks:string,blocks:array,diagnostics:array<int,array<string,mixed>>,report:array<string,mixed>,asset_references:array<int,array<string,mixed>>,svg_icon_artifacts:array<int,array<string,mixed>>,navigation_candidates:array<int,array<string,mixed>>,visual_repair_metadata:array<string,mixed>,fallbacks:array<int,array<string,mixed>>,metrics:array<string,mixed>}
 	 */
 	private function convert_content_to_blocks( string $content, string $format, array $options ): array {
 		$format = $this->normalize_fragment_format($format);
@@ -716,6 +720,7 @@ class Block_Artifact_Compiler {
 					'source' => 'blocks',
 				),
 				'asset_references'      => array(),
+				'svg_icon_artifacts'    => array(),
 				'navigation_candidates' => array(),
 				'visual_repair_metadata' => array(),
 				'fallbacks'             => array(),
@@ -733,6 +738,7 @@ class Block_Artifact_Compiler {
 					'metrics'                    => isset($result['metrics']) && is_array($result['metrics']) ? $result['metrics'] : array(),
 					'fallbacks'                  => isset($result['fallbacks']) && is_array($result['fallbacks']) ? $result['fallbacks'] : array(),
 					'asset_reference_count'       => isset($result['asset_references']) && is_array($result['asset_references']) ? count($result['asset_references']) : 0,
+					'svg_icon_artifact_count'     => isset($result['svg_icon_artifacts']) && is_array($result['svg_icon_artifacts']) ? count($result['svg_icon_artifacts']) : 0,
 					'navigation_candidate_count' => isset($result['navigation_candidates']) && is_array($result['navigation_candidates']) ? count($result['navigation_candidates']) : 0,
 					'visual_repair_category_counts' => $this->visual_repair_category_counts(isset($result['visual_repair_metadata']) && is_array($result['visual_repair_metadata']) ? $result['visual_repair_metadata'] : array()),
 				),
@@ -744,6 +750,7 @@ class Block_Artifact_Compiler {
 				'diagnostics'           => isset($result['diagnostics']) && is_array($result['diagnostics']) ? $result['diagnostics'] : array(),
 				'report'                => $report,
 				'asset_references'      => isset($result['asset_references']) && is_array($result['asset_references']) ? $result['asset_references'] : array(),
+				'svg_icon_artifacts'    => isset($result['svg_icon_artifacts']) && is_array($result['svg_icon_artifacts']) ? $result['svg_icon_artifacts'] : array(),
 				'navigation_candidates' => isset($result['navigation_candidates']) && is_array($result['navigation_candidates']) ? $result['navigation_candidates'] : array(),
 				'visual_repair_metadata' => isset($result['visual_repair_metadata']) && is_array($result['visual_repair_metadata']) ? $result['visual_repair_metadata'] : array(),
 				'fallbacks'             => isset($result['fallbacks']) && is_array($result['fallbacks']) ? $result['fallbacks'] : array(),
@@ -764,6 +771,7 @@ class Block_Artifact_Compiler {
 				'diagnostics'       => isset($report['diagnostics']) && is_array($report['diagnostics']) ? $report['diagnostics'] : array(),
 				'report'            => $report,
 				'asset_references'      => array(),
+				'svg_icon_artifacts'    => array(),
 				'navigation_candidates' => array(),
 				'visual_repair_metadata' => array(),
 				'fallbacks'             => array(),
@@ -783,6 +791,7 @@ class Block_Artifact_Compiler {
 					'source' => $format,
 				),
 				'asset_references'      => array(),
+				'svg_icon_artifacts'    => array(),
 				'navigation_candidates' => array(),
 				'visual_repair_metadata' => array(),
 				'fallbacks'             => array(),
@@ -801,6 +810,7 @@ class Block_Artifact_Compiler {
 				'source' => $format,
 			),
 			'asset_references'      => array(),
+			'svg_icon_artifacts'    => array(),
 			'navigation_candidates' => array(),
 			'visual_repair_metadata' => array(),
 			'fallbacks'             => array(),
@@ -833,17 +843,51 @@ class Block_Artifact_Compiler {
 	 */
 	private function compiled_site_artifact( array $artifact, array $documents, array $template_parts, array $regions ): array {
 		$shared_regions = $this->shared_region_contracts($regions);
-		$pages = array_map(
-			static function ( array $document ): array {
-				return array(
-					'source_path' => (string) ( $document['source_path'] ?? '' ),
-					'route_key'   => (string) ( $document['slug'] ?? '' ),
-					'slug'        => (string) ( $document['slug'] ?? '' ),
-					'post_type'   => (string) ( $document['post_type'] ?? 'page' ),
-					'title'       => (string) ( $document['title'] ?? '' ),
-					'entrypoint'  => ! empty($document['entrypoint']),
-					'artifact'    => 'wordpress_artifacts.documents',
+		$route_map      = array();
+		$rewrite_map    = array();
+		$front_page     = array();
+		$pages          = array_map(
+			static function ( array $document ) use ( &$route_map, &$rewrite_map, &$front_page ): array {
+				$route_keys          = isset($document['route_keys']) && is_array($document['route_keys']) ? array_values($document['route_keys']) : array();
+				$link_rewrite_keys   = isset($document['link_rewrite_keys']) && is_array($document['link_rewrite_keys']) ? array_values($document['link_rewrite_keys']) : $route_keys;
+				$route_key           = (string) ( $document['route_key'] ?? $document['slug'] ?? '' );
+				$link_rewrite_target = (string) ( $document['link_rewrite_target'] ?? $document['permalink_path'] ?? '' );
+
+				foreach ( $route_keys as $key ) {
+					$route_map[ (string) $key ] = $route_key;
+				}
+				foreach ( $link_rewrite_keys as $key ) {
+					$rewrite_map[ (string) $key ] = array(
+						'route_key'   => $route_key,
+						'target_path' => $link_rewrite_target,
+					);
+				}
+
+				$is_front_page = ! empty($document['front_page']);
+				$page          = array(
+					'source_path'          => (string) ( $document['source_path'] ?? '' ),
+					'route_key'            => $route_key,
+					'route_keys'           => $route_keys,
+					'route_path'           => (string) ( $document['route_path'] ?? '' ),
+					'permalink_path'       => (string) ( $document['permalink_path'] ?? '' ),
+					'link_rewrite_keys'    => $link_rewrite_keys,
+					'link_rewrite_target'  => $link_rewrite_target,
+					'slug'                 => (string) ( $document['slug'] ?? '' ),
+					'canonical_slug'       => (string) ( $document['canonical_slug'] ?? $document['slug'] ?? '' ),
+					'post_type'            => (string) ( $document['post_type'] ?? 'page' ),
+					'status'               => (string) ( $document['status'] ?? 'publish' ),
+					'post_status'          => (string) ( $document['post_status'] ?? $document['status'] ?? 'publish' ),
+					'title'                => (string) ( $document['title'] ?? '' ),
+					'entrypoint'           => ! empty($document['entrypoint']),
+					'front_page'           => $is_front_page,
+					'artifact'             => 'wordpress_artifacts.documents',
 				);
+
+				if ( $is_front_page && empty($front_page) ) {
+					$front_page = $page;
+				}
+
+				return $page;
 			},
 			$documents
 		);
@@ -851,6 +895,9 @@ class Block_Artifact_Compiler {
 		return array(
 			'schema'         => 'block-artifact-compiler/compiled-site/v1',
 			'pages'          => $pages,
+			'front_page'       => $front_page,
+			'route_map'        => $route_map,
+			'link_rewrite_map' => $rewrite_map,
 			'regions'        => array_map(
 				static function ( array $region ): array {
 					return array(
@@ -1033,6 +1080,7 @@ class Block_Artifact_Compiler {
 				'diagnostics'           => $conversion['diagnostics'],
 				'bfb_report'            => $conversion['report'],
 				'asset_references'      => $conversion['asset_references'],
+				'svg_icon_artifacts'    => $conversion['svg_icon_artifacts'],
 				'navigation_candidates' => $conversion['navigation_candidates'],
 				'visual_repair_metadata' => $conversion['visual_repair_metadata'],
 			);
@@ -1114,6 +1162,22 @@ class Block_Artifact_Compiler {
 			$this->reference_rows_from_conversion($entry_conversion, 'entry', 'navigation_candidates'),
 			$this->reference_rows_from_artifacts($documents, 'document', 'navigation_candidates'),
 			$this->reference_rows_from_artifacts($template_parts, 'template_part', 'navigation_candidates')
+		));
+	}
+
+	/**
+	 * Merge entry, document, and template-part SVG/icon artifacts.
+	 *
+	 * @param array<string,mixed>            $entry_conversion Entry conversion result.
+	 * @param array<int,array<string,mixed>> $documents        Document artifacts.
+	 * @param array<int,array<string,mixed>> $template_parts   Template part artifacts.
+	 * @return array<int,array<string,mixed>> SVG/icon artifacts.
+	 */
+	private function compiled_svg_icon_artifacts( array $entry_conversion, array $documents, array $template_parts ): array {
+		return $this->dedupe_reference_rows(array_merge(
+			$this->reference_rows_from_conversion($entry_conversion, 'entry', 'svg_icon_artifacts'),
+			$this->reference_rows_from_artifacts($documents, 'document', 'svg_icon_artifacts'),
+			$this->reference_rows_from_artifacts($template_parts, 'template_part', 'svg_icon_artifacts')
 		));
 	}
 
@@ -1815,11 +1879,13 @@ class Block_Artifact_Compiler {
 		$documents   = array();
 		$components  = array();
 		$diagnostics = array();
+		$route_root  = $this->site_route_root($artifact);
 
 		foreach ( $artifact['files'] as $file ) {
 			if ( ! in_array($file['kind'], array( 'html', 'markdown', 'mdx' ), true) ) {
 				continue;
 			}
+			$is_explicit_entrypoint = in_array($file['path'], $artifact['declared_entrypoints'] ?? array(), true);
 
 			if ( 'html' === $file['kind'] ) {
 				$document             = $this->entry_document_contract($file['content'], $file['path']);
@@ -1827,27 +1893,41 @@ class Block_Artifact_Compiler {
 				$document_diagnostics = $conversion['diagnostics'];
 				$diagnostics          = array_merge($diagnostics, $document_diagnostics);
 				$metadata             = $document['metadata'];
+				$title                = '' !== (string) ( $metadata['title'] ?? '' ) ? (string) $metadata['title'] : $this->title_from_path($file['path']);
+				$identity             = $this->page_identity_from_source($file['path'], $route_root, $is_explicit_entrypoint, '', $title);
 
-				$documents[] = array(
-					'source_path'       => $file['path'],
-					'kind'              => 'html',
-					'post_type'         => 'page',
-					'slug'              => $this->slug_from_path($file['path']),
-					'title'             => '' !== (string) ( $metadata['title'] ?? '' ) ? (string) $metadata['title'] : $this->title_from_path($file['path']),
-					'excerpt'           => '',
-					'date'              => '',
-					'template'          => '',
-					'taxonomies'        => array(),
-					'entrypoint'        => ! empty($file['entrypoint']),
-					'document_metadata' => $metadata,
-					'block_markup'      => $conversion['serialized_blocks'],
-					'blocks'            => $conversion['blocks'],
-					'bfb_report'        => $conversion['report'],
-					'asset_references'  => $conversion['asset_references'],
-					'navigation_candidates' => $conversion['navigation_candidates'],
-					'visual_repair_metadata' => $conversion['visual_repair_metadata'],
-					'diagnostics'       => $document_diagnostics,
-					'provenance'        => $file['provenance'],
+				$documents[] = array_merge(
+					$identity,
+					array(
+						'source_path'       => $file['path'],
+						'kind'              => 'html',
+						'post_type'         => 'page',
+						'post_status'       => 'publish',
+						'status'            => 'publish',
+						'slug'              => $identity['canonical_slug'],
+						'title'             => $title,
+						'excerpt'           => '',
+						'date'              => '',
+						'template'          => '',
+						'taxonomies'        => array(),
+						'entrypoint'        => $is_explicit_entrypoint,
+						'metadata'          => array(
+							'title'     => $title,
+							'slug'      => $identity['canonical_slug'],
+							'status'    => 'publish',
+							'post_type' => 'page',
+						),
+						'document_metadata' => $metadata,
+						'block_markup'      => $conversion['serialized_blocks'],
+						'blocks'            => $conversion['blocks'],
+						'bfb_report'        => $conversion['report'],
+						'asset_references'  => $conversion['asset_references'],
+						'svg_icon_artifacts' => $conversion['svg_icon_artifacts'],
+						'navigation_candidates' => $conversion['navigation_candidates'],
+						'visual_repair_metadata' => $conversion['visual_repair_metadata'],
+						'diagnostics'       => $document_diagnostics,
+						'provenance'        => $file['provenance'],
+					)
 				);
 				continue;
 			}
@@ -1868,25 +1948,43 @@ class Block_Artifact_Compiler {
 			$document_diagnostics = array_merge($document_diagnostics, $conversion['diagnostics']);
 			$diagnostics          = array_merge($diagnostics, $document_diagnostics);
 
-			$documents[] = array(
-				'source_path'  => $file['path'],
-				'kind'         => $file['kind'],
-				'post_type'    => $this->frontmatter_string($frontmatter, array( 'post_type', 'type' ), 'page'),
-				'slug'         => $this->frontmatter_string($frontmatter, array( 'slug' ), $this->slug_from_path($file['path'])),
-				'title'        => $this->frontmatter_string($frontmatter, array( 'title' ), $this->title_from_path($file['path'])),
-				'excerpt'      => $this->frontmatter_string($frontmatter, array( 'excerpt', 'description' ), ''),
-				'date'         => $this->frontmatter_string($frontmatter, array( 'date', 'published', 'published_at' ), ''),
-				'template'     => $this->frontmatter_string($frontmatter, array( 'template', 'layout' ), ''),
-				'taxonomies'   => $this->frontmatter_taxonomies($frontmatter),
-				'frontmatter'  => $frontmatter,
-				'block_markup' => $conversion['serialized_blocks'],
-				'blocks'       => $conversion['blocks'],
-				'bfb_report'   => $conversion['report'],
-				'asset_references' => $conversion['asset_references'],
-				'navigation_candidates' => $conversion['navigation_candidates'],
-				'visual_repair_metadata' => $conversion['visual_repair_metadata'],
-				'diagnostics'  => $document_diagnostics,
-				'provenance'   => $file['provenance'],
+			$post_type = $this->frontmatter_string($frontmatter, array( 'post_type', 'type' ), 'page');
+			$status    = $this->frontmatter_string($frontmatter, array( 'status', 'post_status' ), 'publish');
+			$title     = $this->frontmatter_string($frontmatter, array( 'title' ), $this->title_from_path($file['path']));
+			$identity  = $this->page_identity_from_source($file['path'], $route_root, $is_explicit_entrypoint, $this->frontmatter_string($frontmatter, array( 'slug' ), ''), $title);
+
+			$documents[] = array_merge(
+				$identity,
+				array(
+					'source_path'  => $file['path'],
+					'kind'         => $file['kind'],
+					'post_type'    => $post_type,
+					'post_status'  => $status,
+					'status'       => $status,
+					'slug'         => $identity['canonical_slug'],
+					'title'        => $title,
+					'excerpt'      => $this->frontmatter_string($frontmatter, array( 'excerpt', 'description' ), ''),
+					'date'         => $this->frontmatter_string($frontmatter, array( 'date', 'published', 'published_at' ), ''),
+					'template'     => $this->frontmatter_string($frontmatter, array( 'template', 'layout' ), ''),
+					'taxonomies'   => $this->frontmatter_taxonomies($frontmatter),
+					'frontmatter'  => $frontmatter,
+					'entrypoint'   => $is_explicit_entrypoint,
+					'metadata'     => array(
+						'title'     => $title,
+						'slug'      => $identity['canonical_slug'],
+						'status'    => $status,
+						'post_type' => $post_type,
+					),
+					'block_markup' => $conversion['serialized_blocks'],
+					'blocks'       => $conversion['blocks'],
+					'bfb_report'   => $conversion['report'],
+					'asset_references' => $conversion['asset_references'],
+					'svg_icon_artifacts' => $conversion['svg_icon_artifacts'],
+					'navigation_candidates' => $conversion['navigation_candidates'],
+					'visual_repair_metadata' => $conversion['visual_repair_metadata'],
+					'diagnostics'  => $document_diagnostics,
+					'provenance'   => $file['provenance'],
+				)
 			);
 		}
 
@@ -3041,6 +3139,150 @@ class Block_Artifact_Compiler {
 		}
 
 		return $taxonomies;
+	}
+
+	/**
+	 * Infer the artifact route root from an explicit index entrypoint.
+	 *
+	 * @param array{entrypoints?:array<int,string>} $artifact Normalized artifact.
+	 */
+	private function site_route_root( array $artifact ): string {
+		$entrypoints = isset($artifact['declared_entrypoints']) && is_array($artifact['declared_entrypoints']) ? $artifact['declared_entrypoints'] : array();
+		foreach ( $entrypoints as $entrypoint ) {
+			$entrypoint = trim((string) $entrypoint, '/');
+			if ( '' === $entrypoint || ! $this->is_index_source_path($entrypoint) ) {
+				continue;
+			}
+
+			$root = trim(dirname($entrypoint), './');
+			return '.' === $root ? '' : $root;
+		}
+
+		return '';
+	}
+
+	/**
+	 * Build canonical page identity and route/link rewrite data for a source document.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private function page_identity_from_source( string $source_path, string $route_root, bool $is_entrypoint, string $explicit_slug = '', string $title = '' ): array {
+		$source_path   = trim($source_path, '/');
+		$relative_path = $this->route_relative_path($source_path, $route_root);
+		$route_path    = $this->canonical_route_path($relative_path);
+		$front_page    = $is_entrypoint || '' === $route_path;
+		$slug          = '' !== trim($explicit_slug) ? bac_sanitize_key(str_replace(array( '/', '_' ), '-', $explicit_slug)) : $this->canonical_slug_from_route_path($route_path, $front_page);
+		$permalink     = '' === $route_path ? '/' : '/' . $route_path . '/';
+		$route_key     = '' === $route_path ? '/' : $route_path;
+		$route_keys    = $this->route_keys_for_source($source_path, $relative_path, $route_path);
+
+		return array(
+			'canonical_slug'       => $slug,
+			'route_key'            => $route_key,
+			'route_keys'           => $route_keys,
+			'route_path'           => $route_path,
+			'permalink_path'       => $permalink,
+			'link_rewrite_keys'    => $route_keys,
+			'link_rewrite_target'  => $permalink,
+			'front_page'           => $front_page,
+			'route'                => array(
+				'source_path'         => $source_path,
+				'relative_path'       => $relative_path,
+				'route_key'           => $route_key,
+				'route_keys'          => $route_keys,
+				'path'                => $route_path,
+				'permalink_path'      => $permalink,
+				'link_rewrite_target' => $permalink,
+			),
+			'page_identity'        => array(
+				'slug'       => $slug,
+				'title'      => $title,
+				'front_page' => $front_page,
+			),
+		);
+	}
+
+	/**
+	 * Strip the artifact route root from a source path when applicable.
+	 */
+	private function route_relative_path( string $source_path, string $route_root ): string {
+		$source_path = trim($source_path, '/');
+		$route_root  = trim($route_root, '/');
+		if ( '' !== $route_root && ( $source_path === $route_root || str_starts_with($source_path, $route_root . '/') ) ) {
+			return ltrim(substr($source_path, strlen($route_root)), '/');
+		}
+
+		return $source_path;
+	}
+
+	/**
+	 * Build the materializer-neutral route path for a source-relative document.
+	 */
+	private function canonical_route_path( string $relative_path ): string {
+		$extensionless = preg_replace('/\.(?:html?|md|markdown|mdx)$/i', '', trim($relative_path, '/'));
+		$extensionless = trim((string) ( '' === (string) $extensionless ? $relative_path : $extensionless ), '/');
+
+		if ( preg_match('#(^|/)index$#i', $extensionless) ) {
+			$extensionless = preg_replace('#(^|/)index$#i', '$1', $extensionless);
+		}
+
+		return trim((string) $extensionless, '/');
+	}
+
+	/**
+	 * Build a WordPress-safe slug from a canonical route path.
+	 */
+	private function canonical_slug_from_route_path( string $route_path, bool $front_page ): string {
+		if ( $front_page || '' === trim($route_path) ) {
+			return 'home';
+		}
+
+		$slug = bac_sanitize_key(str_replace(array( '/', '_' ), '-', trim($route_path, '/')));
+		return '' === $slug ? 'document' : $slug;
+	}
+
+	/**
+	 * Check whether a path is an index source document.
+	 */
+	private function is_index_source_path( string $path ): bool {
+		return in_array(strtolower(basename($path)), array( 'index.html', 'index.htm', 'index.md', 'index.markdown', 'index.mdx' ), true);
+	}
+
+	/**
+	 * Build stable route/link keys for source href resolution.
+	 *
+	 * @return array<int,string>
+	 */
+	private function route_keys_for_source( string $source_path, string $relative_path, string $route_path ): array {
+		$keys = array();
+		foreach ( array( $source_path, $relative_path ) as $path ) {
+			$path = trim($path, '/');
+			if ( '' === $path ) {
+				continue;
+			}
+
+			$keys[]        = $path;
+			$keys[]        = '/' . $path;
+			$keys[]        = './' . $path;
+			$extensionless = preg_replace('/\.(?:html?|md|markdown|mdx)$/i', '', $path);
+			$extensionless = trim((string) ( '' === (string) $extensionless ? $path : $extensionless ), '/');
+
+			foreach ( array( 'html', 'htm', 'md', 'markdown', 'mdx' ) as $extension ) {
+				$keys[] = $extensionless . '.' . $extension;
+				$keys[] = '/' . $extensionless . '.' . $extension;
+			}
+		}
+
+		if ( '' === $route_path ) {
+			$keys[] = '/';
+		} else {
+			$keys[] = $route_path;
+			$keys[] = '/' . $route_path;
+			$keys[] = $route_path . '/';
+			$keys[] = '/' . $route_path . '/';
+		}
+
+		return array_values(array_unique(array_filter($keys, static fn ( string $key ): bool => '' !== trim($key))));
 	}
 
 	/**
