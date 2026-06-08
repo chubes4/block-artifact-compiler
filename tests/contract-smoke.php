@@ -177,6 +177,7 @@ $full_document = bac_compile_website_artifact(
 );
 $full_document_markup = (string) ( $full_document['wordpress_artifacts']['block_markup'] ?? '' );
 $full_document_metadata = $full_document['wordpress_artifacts']['document_metadata'] ?? array();
+$full_document_template_parts = $full_document['wordpress_artifacts']['template_parts'] ?? array();
 $assert( ! str_contains( $full_document_markup, '<meta' ), 'full document meta tags are not emitted as block content', $full_document_markup );
 $assert( ! str_contains( $full_document_markup, '<title' ), 'full document title tag is not emitted as block content', $full_document_markup );
 $assert( ! str_contains( $full_document_markup, '<link' ), 'full document link tags are not emitted as block content', $full_document_markup );
@@ -186,6 +187,10 @@ $assert( 'Ember & Rye' === ( $full_document_metadata['title'] ?? '' ), 'full doc
 $assert( 'utf-8' === ( $full_document_metadata['meta'][0]['charset'] ?? '' ), 'charset meta is routed to metadata contract' );
 $assert( 'viewport' === ( $full_document_metadata['meta'][1]['name'] ?? '' ), 'viewport meta is routed to metadata contract' );
 $assert( '/assets/site.css' === ( $full_document_metadata['links'][0]['href'] ?? '' ), 'stylesheet link is routed to metadata contract' );
+$assert( 1 === count( $full_document_template_parts ), 'full document header compiles into a template part artifact' );
+$assert( 'header' === ( $full_document_template_parts[0]['slug'] ?? '' ), 'full document template part preserves header slug' );
+$assert( 1 === count( $full_document_template_parts[0]['source_paths'] ?? array() ), 'full document template part preserves source path' );
+$assert( 1 === count( $full_document['wordpress_artifacts']['site']['template_parts'] ?? array() ), 'compiled site links full document template part artifact' );
 
 $multi_page = bac_compile_website_artifact(
 	array(
