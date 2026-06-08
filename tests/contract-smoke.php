@@ -13,8 +13,8 @@ $assert = static function ( bool $condition, string $message, string $detail = '
 	}
 
 	$failure = 'FAIL: ' . $message . ( '' !== $detail ? ' - ' . $detail : '' ) . PHP_EOL;
-	fwrite( STDOUT, $failure );
-	fwrite( STDERR, $failure );
+	file_put_contents( 'php://output', $failure );
+	file_put_contents( 'php://stderr', $failure );
 	throw new RuntimeException( trim( $failure ) );
 };
 
@@ -601,4 +601,4 @@ $summary = bac_summarize_result( $plugin_bundle );
 $assert( 1 === ( $summary['plugin_artifact_count'] ?? 0 ), 'summary exposes plugin artifact count' );
 $assert( 2 === ( $summary['custom_block_requirement_count'] ?? 0 ), 'summary exposes custom block requirement count' );
 
-fwrite( STDOUT, "contract smoke passed\n" );
+file_put_contents( 'php://output', "contract smoke passed\n" );
