@@ -97,6 +97,7 @@ class Block_Artifact_Compiler {
 				'regions'      => $regions,
 				'template_parts' => $template_parts,
 				'asset_references' => $this->compiled_asset_references($conversion, $documents['documents'], $template_parts),
+				'svg_icon_artifacts' => $this->compiled_svg_icon_artifacts($conversion, $documents['documents'], $template_parts),
 				'navigation_candidates' => $this->compiled_navigation_candidates($conversion, $documents['documents'], $template_parts),
 				'block_types'  => $block_types,
 				'plugins'      => $plugins,
@@ -171,6 +172,7 @@ class Block_Artifact_Compiler {
 			'custom_block_requirement_count' => isset($requirements['custom_blocks']) && is_array($requirements['custom_blocks']) ? count($requirements['custom_blocks']) : 0,
 			'component_count'           => count($components),
 			'file_count'                => count($files),
+			'svg_icon_artifact_count'   => isset($artifacts['svg_icon_artifacts']) && is_array($artifacts['svg_icon_artifacts']) ? count($artifacts['svg_icon_artifacts']) : 0,
 			'diagnostic_count'          => count($diagnostics),
 		);
 	}
@@ -699,7 +701,7 @@ class Block_Artifact_Compiler {
 	 * @param  string              $content Source content.
 	 * @param  string              $format  Source format.
 	 * @param  array<string,mixed> $options Compiler options.
-	 * @return array{serialized_blocks:string,blocks:array,diagnostics:array<int,array<string,mixed>>,report:array<string,mixed>,asset_references:array<int,array<string,mixed>>,navigation_candidates:array<int,array<string,mixed>>,fallbacks:array<int,array<string,mixed>>,metrics:array<string,mixed>}
+	 * @return array{serialized_blocks:string,blocks:array,diagnostics:array<int,array<string,mixed>>,report:array<string,mixed>,asset_references:array<int,array<string,mixed>>,svg_icon_artifacts:array<int,array<string,mixed>>,navigation_candidates:array<int,array<string,mixed>>,fallbacks:array<int,array<string,mixed>>,metrics:array<string,mixed>}
 	 */
 	private function convert_content_to_blocks( string $content, string $format, array $options ): array {
 		$format = $this->normalize_fragment_format($format);
@@ -715,6 +717,7 @@ class Block_Artifact_Compiler {
 					'source' => 'blocks',
 				),
 				'asset_references'      => array(),
+				'svg_icon_artifacts'    => array(),
 				'navigation_candidates' => array(),
 				'fallbacks'             => array(),
 				'metrics'               => array(),
@@ -731,6 +734,7 @@ class Block_Artifact_Compiler {
 					'metrics'                    => isset($result['metrics']) && is_array($result['metrics']) ? $result['metrics'] : array(),
 					'fallbacks'                  => isset($result['fallbacks']) && is_array($result['fallbacks']) ? $result['fallbacks'] : array(),
 					'asset_reference_count'       => isset($result['asset_references']) && is_array($result['asset_references']) ? count($result['asset_references']) : 0,
+					'svg_icon_artifact_count'     => isset($result['svg_icon_artifacts']) && is_array($result['svg_icon_artifacts']) ? count($result['svg_icon_artifacts']) : 0,
 					'navigation_candidate_count' => isset($result['navigation_candidates']) && is_array($result['navigation_candidates']) ? count($result['navigation_candidates']) : 0,
 				),
 			);
@@ -741,6 +745,7 @@ class Block_Artifact_Compiler {
 				'diagnostics'           => isset($result['diagnostics']) && is_array($result['diagnostics']) ? $result['diagnostics'] : array(),
 				'report'                => $report,
 				'asset_references'      => isset($result['asset_references']) && is_array($result['asset_references']) ? $result['asset_references'] : array(),
+				'svg_icon_artifacts'    => isset($result['svg_icon_artifacts']) && is_array($result['svg_icon_artifacts']) ? $result['svg_icon_artifacts'] : array(),
 				'navigation_candidates' => isset($result['navigation_candidates']) && is_array($result['navigation_candidates']) ? $result['navigation_candidates'] : array(),
 				'fallbacks'             => isset($result['fallbacks']) && is_array($result['fallbacks']) ? $result['fallbacks'] : array(),
 				'metrics'               => isset($result['metrics']) && is_array($result['metrics']) ? $result['metrics'] : array(),
@@ -760,6 +765,7 @@ class Block_Artifact_Compiler {
 				'diagnostics'       => isset($report['diagnostics']) && is_array($report['diagnostics']) ? $report['diagnostics'] : array(),
 				'report'            => $report,
 				'asset_references'      => array(),
+				'svg_icon_artifacts'    => array(),
 				'navigation_candidates' => array(),
 				'fallbacks'             => array(),
 				'metrics'               => array(),
@@ -778,6 +784,7 @@ class Block_Artifact_Compiler {
 					'source' => $format,
 				),
 				'asset_references'      => array(),
+				'svg_icon_artifacts'    => array(),
 				'navigation_candidates' => array(),
 				'fallbacks'             => array(),
 				'metrics'               => array(),
@@ -795,6 +802,7 @@ class Block_Artifact_Compiler {
 				'source' => $format,
 			),
 			'asset_references'      => array(),
+			'svg_icon_artifacts'    => array(),
 			'navigation_candidates' => array(),
 			'fallbacks'             => array(),
 			'metrics'               => array(),
@@ -1063,6 +1071,7 @@ class Block_Artifact_Compiler {
 				'diagnostics'           => $conversion['diagnostics'],
 				'bfb_report'            => $conversion['report'],
 				'asset_references'      => $conversion['asset_references'],
+				'svg_icon_artifacts'    => $conversion['svg_icon_artifacts'],
 				'navigation_candidates' => $conversion['navigation_candidates'],
 			);
 		}
@@ -1143,6 +1152,22 @@ class Block_Artifact_Compiler {
 			$this->reference_rows_from_conversion($entry_conversion, 'entry', 'navigation_candidates'),
 			$this->reference_rows_from_artifacts($documents, 'document', 'navigation_candidates'),
 			$this->reference_rows_from_artifacts($template_parts, 'template_part', 'navigation_candidates')
+		));
+	}
+
+	/**
+	 * Merge entry, document, and template-part SVG/icon artifacts.
+	 *
+	 * @param array<string,mixed>            $entry_conversion Entry conversion result.
+	 * @param array<int,array<string,mixed>> $documents        Document artifacts.
+	 * @param array<int,array<string,mixed>> $template_parts   Template part artifacts.
+	 * @return array<int,array<string,mixed>> SVG/icon artifacts.
+	 */
+	private function compiled_svg_icon_artifacts( array $entry_conversion, array $documents, array $template_parts ): array {
+		return $this->dedupe_reference_rows(array_merge(
+			$this->reference_rows_from_conversion($entry_conversion, 'entry', 'svg_icon_artifacts'),
+			$this->reference_rows_from_artifacts($documents, 'document', 'svg_icon_artifacts'),
+			$this->reference_rows_from_artifacts($template_parts, 'template_part', 'svg_icon_artifacts')
 		));
 	}
 
@@ -1467,6 +1492,7 @@ class Block_Artifact_Compiler {
 						'blocks'            => $conversion['blocks'],
 						'bfb_report'        => $conversion['report'],
 						'asset_references'  => $conversion['asset_references'],
+						'svg_icon_artifacts' => $conversion['svg_icon_artifacts'],
 						'navigation_candidates' => $conversion['navigation_candidates'],
 						'diagnostics'       => $document_diagnostics,
 						'provenance'        => $file['provenance'],
@@ -1522,6 +1548,7 @@ class Block_Artifact_Compiler {
 					'blocks'       => $conversion['blocks'],
 					'bfb_report'   => $conversion['report'],
 					'asset_references' => $conversion['asset_references'],
+					'svg_icon_artifacts' => $conversion['svg_icon_artifacts'],
 					'navigation_candidates' => $conversion['navigation_candidates'],
 					'diagnostics'  => $document_diagnostics,
 					'provenance'   => $file['provenance'],
