@@ -261,13 +261,32 @@ $assert( 1 === count( $shared_chrome['wordpress_artifacts']['site']['theme_asset
 if ( ! function_exists( 'html_to_blocks_convert_fragment' ) ) {
 	function html_to_blocks_convert_fragment( string $html, array $args = array() ): array {
 		unset( $args );
+		$svg_icon_artifacts = array();
+		$diagnostics        = array();
+		if ( str_contains( $html, '<svg' ) && str_contains( $html, '<script' ) ) {
+			$diagnostics[] = array(
+				'code'     => 'unsafe_inline_svg',
+				'severity' => 'warning',
+				'message'  => 'Inline SVG was preserved as core/html because it did not pass safe icon artifact classification.',
+				'context'  => array( 'svg_reason' => 'disallowed_tag' ),
+			);
+		} elseif ( str_contains( $html, '<svg' ) ) {
+			$svg_icon_artifacts[] = array(
+				'id'         => 'svg-icon-test-' . substr( hash( 'sha256', $html ), 0, 8 ),
+				'type'       => 'svg-icon',
+				'content'    => str_contains( $html, '<symbol' ) ? '<svg viewBox="0 0 24 24"><defs><symbol id="shape"><path d="M1 1h22v22H1z"/></symbol></defs><use href="#shape"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M4 12h14"/></svg>',
+				'metadata'   => array( 'kind' => 'inline-svg-icon' ),
+				'block_path' => array( 0 ),
+			);
+		}
 
 		return array(
 			'block_markup'          => '<!-- wp:paragraph --><p>' . strip_tags( $html ) . '</p><!-- /wp:paragraph -->',
 			'blocks'                => array(),
-			'diagnostics'           => array(),
+			'diagnostics'           => $diagnostics,
 			'fallbacks'             => array(),
 			'asset_references'      => str_contains( $html, 'logo.svg' ) ? array( array( 'attribute' => 'src', 'url' => 'assets/logo.svg' ) ) : array(),
+			'svg_icon_artifacts'    => $svg_icon_artifacts,
 			'navigation_candidates' => str_contains( $html, '<nav' ) ? array(
 				array(
 					'source' => 'nav[0]',
@@ -298,6 +317,39 @@ $assert( ! empty( $h2bc_result['wordpress_artifacts']['asset_references'] ?? arr
 $assert( ! empty( $h2bc_result['wordpress_artifacts']['navigation_candidates'] ?? array() ), 'BAC exposes merged H2BC navigation candidates' );
 $assert( ! empty( $h2bc_result['wordpress_artifacts']['documents'][0]['asset_references'] ?? array() ), 'document artifacts preserve H2BC asset references' );
 $assert( ! empty( $h2bc_result['wordpress_artifacts']['template_parts'][0]['navigation_candidates'] ?? array() ), 'template part artifacts preserve H2BC navigation candidates' );
+
+$inline_icon_result = bac_compile_website_artifact(
+	array(
+		'generated_html' => '<main><svg class="icon" viewBox="0 0 24 24"><path d="M4 12h14"/></svg></main>',
+	)
+);
+$inline_icons = $inline_icon_result['wordpress_artifacts']['svg_icon_artifacts'] ?? array();
+$assert( 1 === ( $inline_icon_result['bfb_report']['h2bc_result']['svg_icon_artifact_count'] ?? null ), 'BAC report includes H2BC SVG icon artifact count' );
+$assert( ! empty( $inline_icons ), 'BAC exposes merged SVG icon artifacts' );
+$assert( 'entry' === ( $inline_icons[0]['scope'] ?? '' ), 'entry SVG artifact gets scope' );
+$assert( str_contains( (string) ( $inline_icons[0]['content'] ?? '' ), '<path' ), 'entry SVG artifact preserves sanitized content' );
+$assert( ( $inline_icons[0]['metadata']['kind'] ?? '' ) === 'inline-svg-icon', 'entry SVG artifact preserves metadata' );
+$assert( count( $inline_icons ) === ( bac_summarize_result( $inline_icon_result )['svg_icon_artifact_count'] ?? null ), 'summary exposes SVG icon artifact count' );
+
+$unsafe_svg_result = bac_compile_website_artifact(
+	array(
+		'generated_html' => '<main><svg viewBox="0 0 24 24"><script>alert(1)</script><path d="M0 0h1"/></svg></main>',
+	)
+);
+$assert( ! empty( array_filter( $unsafe_svg_result['diagnostics'] ?? array(), static fn ( array $diagnostic ): bool => 'unsafe_inline_svg' === ( $diagnostic['code'] ?? '' ) ) ), 'unsafe SVG diagnostic bubbles through BAC' );
+$assert( empty( $unsafe_svg_result['wordpress_artifacts']['svg_icon_artifacts'] ?? array() ), 'unsafe SVG emits no BAC icon artifact' );
+
+$symbol_sprite_result = bac_compile_website_artifact(
+	array(
+		'files' => array(
+			'home.html' => '<!doctype html><html><body><header><svg viewBox="0 0 24 24"><defs><symbol id="shape"><path d="M1 1h22v22H1z"/></symbol></defs><use href="#shape"/></svg></header><main><h1>Home</h1></main></body></html>',
+		),
+	)
+);
+$symbol_icons = $symbol_sprite_result['wordpress_artifacts']['svg_icon_artifacts'] ?? array();
+$assert( ! empty( $symbol_icons ), 'symbol sprite SVG artifact is exposed' );
+$assert( ! empty( array_filter( $symbol_icons, static fn ( array $artifact ): bool => str_contains( (string) ( $artifact['content'] ?? '' ), '<symbol id="shape"' ) && str_contains( (string) ( $artifact['content'] ?? '' ), '<use href="#shape"' ) ) ), 'local use reference survives in BAC artifact' );
+$assert( ! empty( array_filter( $symbol_icons, static fn ( array $artifact ): bool => 'template_part' === ( $artifact['scope'] ?? '' ) && 'header' === ( $artifact['source_path'] ?? '' ) ) ), 'template part SVG artifact gets source scope' );
 
 $summary = bac_summarize_result( $messy );
 $assert( ( $summary['component_count'] ?? 0 ) > 0, 'summary exposes component count' );
