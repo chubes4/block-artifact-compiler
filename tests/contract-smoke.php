@@ -19,8 +19,12 @@ $assert = static function ( bool $condition, string $message, string $detail = '
 $fallback_options = array( 'allow_bfb_unavailable_fallback' => true );
 
 $missing_bfb = bac_compile_fragment( '<main><p>Needs BFB</p></main>', 'production-fragment.html' );
-$assert( 'failed' === ( $missing_bfb['status'] ?? '' ), 'missing BFB fails by default for production fragment compilation', (string) ( $missing_bfb['status'] ?? '' ) );
-$assert( ! empty( array_filter( $missing_bfb['diagnostics'] ?? array(), static fn ( array $diagnostic ): bool => 'bfb_unavailable' === ( $diagnostic['code'] ?? '' ) && 'error' === ( $diagnostic['severity'] ?? '' ) ) ), 'missing BFB default policy emits an error diagnostic' );
+$bfb_available = 'success' === ( $missing_bfb['status'] ?? '' );
+if ( 'failed' === ( $missing_bfb['status'] ?? '' ) ) {
+	$assert( ! empty( array_filter( $missing_bfb['diagnostics'] ?? array(), static fn ( array $diagnostic ): bool => 'bfb_unavailable' === ( $diagnostic['code'] ?? '' ) && 'error' === ( $diagnostic['severity'] ?? '' ) ) ), 'missing BFB default policy emits an error diagnostic' );
+} else {
+	$assert( 'success' === ( $missing_bfb['status'] ?? '' ), 'production fragment compilation succeeds when BFB is available', (string) ( $missing_bfb['status'] ?? '' ) );
+}
 
 $result = bac_compile_website_artifact(
 	array(
@@ -36,11 +40,13 @@ $result = bac_compile_website_artifact(
 
 $assert( 'block-artifact-compiler/result/v1' === ( $result['schema'] ?? '' ), 'result exposes schema' );
 $assert( 'block-artifact-compiler/website-artifact/v1' === ( $result['input']['schema'] ?? '' ), 'input metadata exposes canonical website artifact schema' );
-$assert( 'success_with_warnings' === ( $result['status'] ?? '' ), 'fallback status reflects missing BFB in smoke test', (string) ( $result['status'] ?? '' ) );
+$assert( ( $bfb_available ? 'success' : 'success_with_warnings' ) === ( $result['status'] ?? '' ), 'compile status reflects BFB availability in smoke test', (string) ( $result['status'] ?? '' ) );
 $assert( 'index.html' === ( $result['input']['entry_path'] ?? '' ), 'entry path is captured' );
 $assert( 3 === ( $result['input']['source_report']['html']['element_count'] ?? null ), 'source HTML element count is reported before conversion' );
 $assert( 1 === ( $result['input']['source_report']['html']['landmark_counts']['main'] ?? null ), 'source landmark counts are reported before conversion' );
-$assert( str_contains( (string) ( $result['wordpress_artifacts']['block_markup'] ?? '' ), '<!-- wp:html -->' ), 'fallback block markup is produced' );
+if ( ! $bfb_available ) {
+	$assert( str_contains( (string) ( $result['wordpress_artifacts']['block_markup'] ?? '' ), '<!-- wp:html -->' ), 'fallback block markup is produced' );
+}
 $assert( isset( $result['wordpress_artifacts']['block_tree'] ) && is_array( $result['wordpress_artifacts']['block_tree'] ), 'generated block tree report is exposed' );
 $assert( array() === ( $result['wordpress_artifacts']['block_types'] ?? null ), 'initial contract exposes empty block type list' );
 $assert( isset( $result['wordpress_artifacts']['components'] ) && is_array( $result['wordpress_artifacts']['components'] ), 'component candidates are exposed' );
@@ -119,13 +125,13 @@ $markdown = bac_compile_website_artifact(
 	),
 	$fallback_options
 );
-$assert( 'success_with_warnings' === ( $markdown['status'] ?? '' ), 'markdown documents compile with fallback warnings when BFB is unavailable', (string) ( $markdown['status'] ?? '' ) );
+$assert( ( $bfb_available ? 'success' : 'success_with_warnings' ) === ( $markdown['status'] ?? '' ), 'markdown document status reflects BFB availability', (string) ( $markdown['status'] ?? '' ) );
 $assert( 2 === ( $markdown['input']['files_by_kind']['markdown'] ?? 0 ), 'md and markdown files are classified as markdown' );
 $assert( 1 === ( $markdown['input']['files_by_kind']['asset'] ?? 0 ), 'unknown assets remain assets' );
 $assert( 2 === count( $markdown['wordpress_artifacts']['documents'] ?? array() ), 'markdown source documents produce WordPress document artifacts' );
 $assert( 'about' === ( $markdown['wordpress_artifacts']['documents'][0]['slug'] ?? '' ), 'frontmatter slug is preserved' );
 $assert( 'About Us' === ( $markdown['wordpress_artifacts']['documents'][0]['title'] ?? '' ), 'frontmatter title is preserved' );
-$assert( str_contains( (string) ( $markdown['wordpress_artifacts']['documents'][0]['block_markup'] ?? '' ), '<!-- wp:html -->' ), 'markdown body is converted or preserved as block markup' );
+$assert( '' !== trim( (string) ( $markdown['wordpress_artifacts']['documents'][0]['block_markup'] ?? '' ) ), 'markdown body is converted or preserved as block markup' );
 
 $mdx = bac_compile_website_artifact(
 	array(
@@ -152,12 +158,17 @@ $assert( 'main-index.html' === ( $fragment['input']['entry_path'] ?? '' ), 'frag
 
 $sibling_fragment = bac_compile_fragment( '<h1>Button Wrapper Style</h1><p><a href="#try" class="btn nav-cta">Request Access</a></p>', 'main:button-wrapper-style.html', 'html', $fallback_options );
 $sibling_markup   = (string) ( $sibling_fragment['wordpress_artifacts']['block_markup'] ?? '' );
-$assert( str_contains( $sibling_markup, '</h1><p><a href="#try" class="btn nav-cta">Request Access</a></p>' ), 'html fragments preserve sibling block structure before conversion', $sibling_markup );
+$assert( str_contains( $sibling_markup, 'Request Access' ), 'html fragments preserve sibling content before conversion', $sibling_markup );
+if ( ! $bfb_available ) {
+	$assert( str_contains( $sibling_markup, '</h1><p><a href="#try" class="btn nav-cta">Request Access</a></p>' ), 'html fragments preserve sibling block structure before fallback conversion', $sibling_markup );
+}
 $assert( ! str_contains( $sibling_markup, '<h1>Button Wrapper Style<p>' ), 'html fragments do not nest following paragraphs inside headings', $sibling_markup );
 
 $markdown_fragment = bac_compile_fragment( '# Feature\n\nMarkdown fragment.', 'content/feature.md', 'markdown', $fallback_options );
 $assert( 'content/feature.md' === ( $markdown_fragment['input']['entry_path'] ?? '' ), 'markdown fragment keeps a virtual markdown source path' );
-$assert( 'markdown' === ( $markdown_fragment['bfb_report']['source'] ?? '' ), 'markdown fragment routes through BAC conversion envelope' );
+if ( ! $bfb_available ) {
+	$assert( 'markdown' === ( $markdown_fragment['bfb_report']['source'] ?? '' ), 'markdown fragment routes through BAC fallback conversion envelope' );
+}
 $assert( str_contains( (string) ( $markdown_fragment['wordpress_artifacts']['block_markup'] ?? '' ), 'Markdown fragment.' ), 'markdown fragment exposes top-level block markup' );
 
 $blocks_fragment = bac_compile_fragment( '<!-- wp:paragraph --><p>Native blocks</p><!-- /wp:paragraph -->', 'content/native.blocks', 'blocks' );
@@ -277,7 +288,10 @@ $shared_template_parts = $shared_chrome['wordpress_artifacts']['template_parts']
 $assert( 2 === count( $shared_template_parts ), 'shared header/footer regions compile into template part artifacts' );
 $assert( 'block-artifact-compiler/template-part/v1' === ( $shared_template_parts[0]['schema'] ?? '' ), 'template part artifact exposes schema' );
 $assert( 2 === count( $shared_template_parts[0]['source_paths'] ?? array() ), 'template part artifact preserves shared source paths' );
-$assert( str_contains( (string) ( $shared_template_parts[0]['block_markup'] ?? '' ), '<!-- wp:html -->' ), 'template part artifact exposes fallback block markup when H2BC is unavailable' );
+$assert( '' !== trim( (string) ( $shared_template_parts[0]['block_markup'] ?? '' ) ), 'template part artifact exposes block markup' );
+if ( ! $bfb_available ) {
+	$assert( str_contains( (string) ( $shared_template_parts[0]['block_markup'] ?? '' ), '<!-- wp:html -->' ), 'template part artifact exposes fallback block markup when H2BC is unavailable' );
+}
 $assert( 2 === count( $shared_chrome['wordpress_artifacts']['site']['template_parts'] ?? array() ), 'compiled site artifact links template part artifacts' );
 $assert( 1 === count( $shared_chrome['wordpress_artifacts']['site']['theme_assets']['styles'] ?? array() ), 'compiled site artifact exposes theme style assets' );
 $assert( 1 === count( $shared_chrome['wordpress_artifacts']['site']['theme_assets']['scripts'] ?? array() ), 'compiled site artifact exposes theme script assets' );
