@@ -210,8 +210,8 @@ $multi_page = bac_compile_website_artifact(
 				'content' => '<!doctype html><html><head><title>Menu Page</title><meta name="description" content="Seasonal menu"></head><body><main><h1>Menu</h1><p>Pizza and small plates.</p></main></body></html>',
 			),
 			array(
-				'path'    => 'website/contact.html',
-				'content' => '<main><h1>Contact</h1><p>Email us.</p></main>',
+				'path'    => 'website/about/index.html',
+				'content' => '<main><h1>About</h1><p>Our story.</p></main>',
 			),
 		)
 	),
@@ -219,18 +219,35 @@ $multi_page = bac_compile_website_artifact(
 );
 $multi_documents = $multi_page['wordpress_artifacts']['documents'] ?? array();
 $assert( 3 === count( $multi_documents ), 'multi-page HTML artifacts expose one document per HTML file' );
-$assert( 'index' === ( $multi_documents[0]['slug'] ?? '' ), 'entry index slug comes from filename' );
+$assert( 'home' === ( $multi_documents[0]['slug'] ?? '' ), 'root index document exposes canonical home slug' );
 $assert( true === ( $multi_documents[0]['entrypoint'] ?? null ), 'entry HTML document preserves entrypoint identity' );
+$assert( true === ( $multi_documents[0]['front_page'] ?? null ), 'root index document exposes front-page identity' );
+$assert( '/' === ( $multi_documents[0]['route_key'] ?? '' ), 'root index document exposes canonical root route key' );
+$assert( '/' === ( $multi_documents[0]['link_rewrite_target'] ?? '' ), 'root index document exposes root link rewrite target' );
 $assert( 'Home Page' === ( $multi_documents[0]['title'] ?? '' ), 'entry HTML document title comes from metadata' );
 $assert( 'menu' === ( $multi_documents[1]['slug'] ?? '' ), 'nested HTML page slug comes from filename' );
+$assert( 'menu' === ( $multi_documents[1]['route_key'] ?? '' ), 'non-index HTML page exposes extensionless route key' );
+$assert( '/menu/' === ( $multi_documents[1]['link_rewrite_target'] ?? '' ), 'non-index HTML page exposes canonical link rewrite target' );
 $assert( 'Menu Page' === ( $multi_documents[1]['title'] ?? '' ), 'nested HTML document title comes from metadata' );
 $assert( 'Seasonal menu' === ( $multi_documents[1]['document_metadata']['meta'][0]['content'] ?? '' ), 'nested HTML document metadata is preserved' );
-$assert( str_contains( (string) ( $multi_documents[2]['block_markup'] ?? '' ), 'Contact' ), 'HTML document block markup preserves body content' );
+$assert( 'about' === ( $multi_documents[2]['slug'] ?? '' ), 'nested index document exposes directory slug instead of index' );
+$assert( 'about' === ( $multi_documents[2]['route_key'] ?? '' ), 'nested index document exposes directory route key' );
+$assert( '/about/' === ( $multi_documents[2]['link_rewrite_target'] ?? '' ), 'nested index document exposes directory link rewrite target' );
+$assert( in_array( 'about/index.html', $multi_documents[2]['route_keys'] ?? array(), true ), 'nested index document exposes source-relative route key' );
+$assert( in_array( '/about/', $multi_documents[2]['link_rewrite_keys'] ?? array(), true ), 'nested index document exposes clean directory rewrite key' );
+$assert( str_contains( (string) ( $multi_documents[2]['block_markup'] ?? '' ), 'About' ), 'HTML document block markup preserves body content' );
 
 $compiled_site = $multi_page['wordpress_artifacts']['site'] ?? array();
 $assert( 'block-artifact-compiler/compiled-site/v1' === ( $compiled_site['schema'] ?? '' ), 'compiled site artifact exposes schema' );
 $assert( 3 === count( $compiled_site['pages'] ?? array() ), 'compiled site artifact exposes page routes' );
-$assert( 'menu' === ( $compiled_site['pages'][1]['route_key'] ?? '' ), 'compiled site page route keys come from document slugs' );
+$assert( 'home' === ( $compiled_site['front_page']['slug'] ?? '' ), 'compiled site exposes explicit front-page identity' );
+$assert( '/' === ( $compiled_site['pages'][0]['route_key'] ?? '' ), 'compiled site root index page exposes root route key' );
+$assert( 'menu' === ( $compiled_site['pages'][1]['route_key'] ?? '' ), 'compiled site non-index page exposes canonical route key' );
+$assert( 'about' === ( $compiled_site['pages'][2]['route_key'] ?? '' ), 'compiled site nested index page exposes canonical directory route key' );
+$assert( 'menu' === ( $compiled_site['route_map']['menu.html'] ?? '' ), 'compiled site route map includes non-index source href key' );
+$assert( 'about' === ( $compiled_site['route_map']['about/index.html'] ?? '' ), 'compiled site route map includes nested index source href key' );
+$assert( '/menu/' === ( $compiled_site['link_rewrite_map']['menu.html']['target_path'] ?? '' ), 'compiled site link rewrite map includes non-index target path' );
+$assert( '/about/' === ( $compiled_site['link_rewrite_map']['about/index.html']['target_path'] ?? '' ), 'compiled site link rewrite map includes nested index target path' );
 
 $shared_chrome = bac_compile_website_artifact(
 	array(
@@ -261,13 +278,32 @@ $assert( 1 === count( $shared_chrome['wordpress_artifacts']['site']['theme_asset
 if ( ! function_exists( 'html_to_blocks_convert_fragment' ) ) {
 	function html_to_blocks_convert_fragment( string $html, array $args = array() ): array {
 		unset( $args );
+		$svg_icon_artifacts = array();
+		$diagnostics        = array();
+		if ( str_contains( $html, '<svg' ) && str_contains( $html, '<script' ) ) {
+			$diagnostics[] = array(
+				'code'     => 'unsafe_inline_svg',
+				'severity' => 'warning',
+				'message'  => 'Inline SVG was preserved as core/html because it did not pass safe icon artifact classification.',
+				'context'  => array( 'svg_reason' => 'disallowed_tag' ),
+			);
+		} elseif ( str_contains( $html, '<svg' ) ) {
+			$svg_icon_artifacts[] = array(
+				'id'         => 'svg-icon-test-' . substr( hash( 'sha256', $html ), 0, 8 ),
+				'type'       => 'svg-icon',
+				'content'    => str_contains( $html, '<symbol' ) ? '<svg viewBox="0 0 24 24"><defs><symbol id="shape"><path d="M1 1h22v22H1z"/></symbol></defs><use href="#shape"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M4 12h14"/></svg>',
+				'metadata'   => array( 'kind' => 'inline-svg-icon' ),
+				'block_path' => array( 0 ),
+			);
+		}
 
 		return array(
 			'block_markup'          => '<!-- wp:paragraph --><p>' . strip_tags( $html ) . '</p><!-- /wp:paragraph -->',
 			'blocks'                => array(),
-			'diagnostics'           => array(),
+			'diagnostics'           => $diagnostics,
 			'fallbacks'             => array(),
 			'asset_references'      => str_contains( $html, 'logo.svg' ) ? array( array( 'attribute' => 'src', 'url' => 'assets/logo.svg' ) ) : array(),
+			'svg_icon_artifacts'    => $svg_icon_artifacts,
 			'navigation_candidates' => str_contains( $html, '<nav' ) ? array(
 				array(
 					'source' => 'nav[0]',
@@ -319,6 +355,39 @@ $assert( ! empty( $h2bc_result['wordpress_artifacts']['documents'][0]['asset_ref
 $assert( 'nav[aria-label="Primary"]' === ( $h2bc_result['wordpress_artifacts']['documents'][0]['selector_provenance'][0]['source']['selector'] ?? '' ), 'document artifacts preserve H2BC selector provenance' );
 $assert( ! empty( $h2bc_result['wordpress_artifacts']['template_parts'][0]['navigation_candidates'] ?? array() ), 'template part artifacts preserve H2BC navigation candidates' );
 $assert( 'nav[aria-label="Primary"]' === ( $h2bc_result['wordpress_artifacts']['template_parts'][0]['selector_provenance'][0]['source']['selector'] ?? '' ), 'template part artifacts preserve H2BC selector provenance' );
+
+$inline_icon_result = bac_compile_website_artifact(
+	array(
+		'generated_html' => '<main><svg class="icon" viewBox="0 0 24 24"><path d="M4 12h14"/></svg></main>',
+	)
+);
+$inline_icons = $inline_icon_result['wordpress_artifacts']['svg_icon_artifacts'] ?? array();
+$assert( 1 === ( $inline_icon_result['bfb_report']['h2bc_result']['svg_icon_artifact_count'] ?? null ), 'BAC report includes H2BC SVG icon artifact count' );
+$assert( ! empty( $inline_icons ), 'BAC exposes merged SVG icon artifacts' );
+$assert( 'entry' === ( $inline_icons[0]['scope'] ?? '' ), 'entry SVG artifact gets scope' );
+$assert( str_contains( (string) ( $inline_icons[0]['content'] ?? '' ), '<path' ), 'entry SVG artifact preserves sanitized content' );
+$assert( ( $inline_icons[0]['metadata']['kind'] ?? '' ) === 'inline-svg-icon', 'entry SVG artifact preserves metadata' );
+$assert( count( $inline_icons ) === ( bac_summarize_result( $inline_icon_result )['svg_icon_artifact_count'] ?? null ), 'summary exposes SVG icon artifact count' );
+
+$unsafe_svg_result = bac_compile_website_artifact(
+	array(
+		'generated_html' => '<main><svg viewBox="0 0 24 24"><script>alert(1)</script><path d="M0 0h1"/></svg></main>',
+	)
+);
+$assert( ! empty( array_filter( $unsafe_svg_result['diagnostics'] ?? array(), static fn ( array $diagnostic ): bool => 'unsafe_inline_svg' === ( $diagnostic['code'] ?? '' ) ) ), 'unsafe SVG diagnostic bubbles through BAC' );
+$assert( empty( $unsafe_svg_result['wordpress_artifacts']['svg_icon_artifacts'] ?? array() ), 'unsafe SVG emits no BAC icon artifact' );
+
+$symbol_sprite_result = bac_compile_website_artifact(
+	array(
+		'files' => array(
+			'home.html' => '<!doctype html><html><body><header><svg viewBox="0 0 24 24"><defs><symbol id="shape"><path d="M1 1h22v22H1z"/></symbol></defs><use href="#shape"/></svg></header><main><h1>Home</h1></main></body></html>',
+		),
+	)
+);
+$symbol_icons = $symbol_sprite_result['wordpress_artifacts']['svg_icon_artifacts'] ?? array();
+$assert( ! empty( $symbol_icons ), 'symbol sprite SVG artifact is exposed' );
+$assert( ! empty( array_filter( $symbol_icons, static fn ( array $artifact ): bool => str_contains( (string) ( $artifact['content'] ?? '' ), '<symbol id="shape"' ) && str_contains( (string) ( $artifact['content'] ?? '' ), '<use href="#shape"' ) ) ), 'local use reference survives in BAC artifact' );
+$assert( ! empty( array_filter( $symbol_icons, static fn ( array $artifact ): bool => 'template_part' === ( $artifact['scope'] ?? '' ) && 'header' === ( $artifact['source_path'] ?? '' ) ) ), 'template part SVG artifact gets source scope' );
 
 $summary = bac_summarize_result( $messy );
 $assert( ( $summary['component_count'] ?? 0 ) > 0, 'summary exposes component count' );
