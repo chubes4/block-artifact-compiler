@@ -15,7 +15,7 @@ $assert = static function ( bool $condition, string $message, string $detail = '
 	$failure = 'FAIL: ' . $message . ( '' !== $detail ? ' - ' . $detail : '' ) . PHP_EOL;
 	fwrite( STDOUT, $failure );
 	fwrite( STDERR, $failure );
-	exit( 1 );
+	throw new RuntimeException( trim( $failure ) );
 };
 
 $fallback_options = array( 'allow_bfb_unavailable_fallback' => true );
