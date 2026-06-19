@@ -159,7 +159,23 @@ class Block_Artifact_Compiler {
 			return array();
 		}
 
-		$result = ( new $compiler_class() )->compile($artifact);
+		try {
+			$result = ( new $compiler_class() )->compile($artifact);
+		} catch ( Throwable $throwable ) {
+			return array(
+				'diagnostics' => array(
+					$this->diagnostic(
+						'canonical_artifact_compiler_failed',
+						'warning',
+						'The canonical Blocks Engine artifact compiler failed; BAC local compatibility compilation continued.',
+						array(
+							'compiler' => $compiler_class,
+							'error'    => $throwable->getMessage(),
+						)
+					),
+				),
+			);
+		}
 		if ( ! is_object($result) || ! method_exists($result, 'toArray') ) {
 			return array();
 		}

@@ -176,6 +176,32 @@ $assert( str_contains( (string) ( $markdown_fragment['wordpress_artifacts']['blo
 $blocks_fragment = bac_compile_fragment( '<!-- wp:paragraph --><p>Native blocks</p><!-- /wp:paragraph -->', 'content/native.blocks', 'blocks' );
 $assert( 'success' === ( $blocks_fragment['status'] ?? '' ), 'serialized block fragments compile without BFB' );
 $assert( str_contains( (string) ( $blocks_fragment['wordpress_artifacts']['block_markup'] ?? '' ), 'Native blocks' ), 'serialized block fragments preserve block markup' );
+$assert( 'content/native.blocks.html' === ( $blocks_fragment['input']['entry_path'] ?? '' ), 'serialized block fragments preserve normalized block entry path' );
+$assert( empty( array_filter( $blocks_fragment['diagnostics'] ?? array(), static fn ( array $diagnostic ): bool => 'missing_entry_html' === ( $diagnostic['code'] ?? '' ) ) ), 'serialized block fragments suppress canonical missing HTML diagnostic' );
+
+$canonical_compiler_class = 'Automattic\\BlocksEngine\\PhpTransformer\\ArtifactCompiler\\ArtifactCompiler';
+$assert( class_exists( $canonical_compiler_class ), 'canonical Blocks Engine artifact compiler is available for wrapper proof' );
+$canonical_delegation = bac_compile_website_artifact(
+	array(
+		'files' => array(
+			'index.html'         => '<main><img src="assets/icon.svg" alt=""><p>Canonical delegation.</p></main>',
+			'assets/icon.svg'    => '<svg viewBox="0 0 24 24"><script>alert(1)</script><path d="M0 0h1"/></svg>',
+			'components/Card.jsx' => 'export default function Card() { return <section />; }',
+		),
+	),
+	$fallback_options
+);
+$assert( ! empty( array_filter( $canonical_delegation['diagnostics'] ?? array(), static fn ( array $diagnostic ): bool => 'unsafe_svg_asset' === ( $diagnostic['code'] ?? '' ) ) ), 'public BAC API includes canonical ArtifactCompiler diagnostics' );
+$assert( ! empty( array_filter( $canonical_delegation['wordpress_artifacts']['components'] ?? array(), static fn ( array $component ): bool => 'jsx-component-file' === ( $component['signal'] ?? '' ) && 'Card' === ( $component['name'] ?? '' ) ) ), 'public BAC API uses canonical ArtifactCompiler components when available' );
+$delegated_svg_asset = null;
+foreach ( $canonical_delegation['wordpress_artifacts']['files'] ?? array() as $asset_file ) {
+	if ( 'assets/icon.svg' === ( $asset_file['path'] ?? '' ) ) {
+		$delegated_svg_asset = $asset_file;
+		break;
+	}
+}
+$assert( is_array( $delegated_svg_asset ), 'canonical delegated asset appears in file manifest' );
+$assert( ! array_key_exists( 'content', $delegated_svg_asset ), 'canonical delegated unsafe SVG asset omits inline content' );
 
 $full_document = bac_compile_website_artifact(
 	array(

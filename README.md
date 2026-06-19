@@ -65,6 +65,12 @@ Block type artifacts are normalized compiler output, not generation prompt const
 
 Plugin artifacts follow the same rule. BAC detects WordPress plugin headers, preserves safe header metadata and source file inventories, links generated `block.json` artifacts inside the plugin directory, and reports requirements without installing, activating, or resolving external plugins. Downstream materializers such as Static Site Importer can decide whether a `provided` plugin/custom-block artifact should be promoted or whether an `external` custom-block requirement needs a preinstalled dependency.
 
+## Blocks Engine Transformer Migration
+
+BAC is migrating its implementation toward the canonical `ArtifactCompiler` in `automattic/blocks-engine-php-transformer`. Until that package is published from Blocks Engine, this repository only uses the transformer as a development/path-repository proof. Runtime installs must not depend on the unpublished remote package; BAC continues to compile through its local compatibility path when the canonical class is unavailable.
+
+The migration wrapper also preserves BAC-owned serialized block entry behavior while the upstream compiler is still HTML/document-entry first. Inputs such as `.blocks` files or `bac_compile_fragment( ..., 'blocks' )` continue to return the serialized block markup directly and do not fail only because no HTML entry exists.
+
 ## Public API
 
 ```php
