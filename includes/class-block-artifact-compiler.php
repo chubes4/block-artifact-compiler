@@ -34,12 +34,6 @@ class Block_Artifact_Compiler {
 		$html        = is_array($entry) ? $entry['content'] : '';
 		$entry_path  = is_array($entry) ? $entry['path'] : '';
 		$canonical_diagnostics = isset($canonical['diagnostics']) && is_array($canonical['diagnostics']) ? $canonical['diagnostics'] : array();
-		if ( ! is_array($entry) && is_array($block_entry) ) {
-			$canonical_diagnostics = array_values(array_filter(
-				$canonical_diagnostics,
-				static fn ( array $diagnostic ): bool => 'missing_entry_html' !== ( $diagnostic['code'] ?? '' )
-			));
-		}
 		$diagnostics = $this->dedupe_diagnostics(array_merge(
 			$normalized['diagnostics'],
 			$documents['diagnostics'],

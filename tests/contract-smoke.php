@@ -177,10 +177,25 @@ $blocks_fragment = bac_compile_fragment( '<!-- wp:paragraph --><p>Native blocks<
 $assert( 'success' === ( $blocks_fragment['status'] ?? '' ), 'serialized block fragments compile without BFB' );
 $assert( str_contains( (string) ( $blocks_fragment['wordpress_artifacts']['block_markup'] ?? '' ), 'Native blocks' ), 'serialized block fragments preserve block markup' );
 $assert( 'content/native.blocks.html' === ( $blocks_fragment['input']['entry_path'] ?? '' ), 'serialized block fragments preserve normalized block entry path' );
-$assert( empty( array_filter( $blocks_fragment['diagnostics'] ?? array(), static fn ( array $diagnostic ): bool => 'missing_entry_html' === ( $diagnostic['code'] ?? '' ) ) ), 'serialized block fragments suppress canonical missing HTML diagnostic' );
+$assert( empty( array_filter( $blocks_fragment['diagnostics'] ?? array(), static fn ( array $diagnostic ): bool => 'missing_entry_html' === ( $diagnostic['code'] ?? '' ) ) ), 'serialized block fragments do not emit missing HTML diagnostics' );
 
 $canonical_compiler_class = 'Automattic\\BlocksEngine\\PhpTransformer\\ArtifactCompiler\\ArtifactCompiler';
 $assert( class_exists( $canonical_compiler_class ), 'canonical Blocks Engine artifact compiler is available for wrapper proof' );
+$canonical_blocks_entry = ( new $canonical_compiler_class() )->compile(
+	array(
+		'entrypoint' => 'content/native.blocks.html',
+		'files'      => array(
+			array(
+				'path'    => 'content/native.blocks.html',
+				'kind'    => 'blocks',
+				'content' => '<!-- wp:paragraph --><p>Native blocks</p><!-- /wp:paragraph -->',
+			),
+		),
+	)
+)->toArray();
+$assert( 'success' === ( $canonical_blocks_entry['status'] ?? '' ), 'canonical compiler accepts serialized block entry artifacts' );
+$assert( str_contains( (string) ( $canonical_blocks_entry['serialized_blocks'] ?? '' ), 'Native blocks' ), 'canonical compiler preserves serialized block entry markup' );
+$assert( empty( array_filter( $canonical_blocks_entry['diagnostics'] ?? array(), static fn ( array $diagnostic ): bool => 'missing_entry_html' === ( $diagnostic['code'] ?? '' ) ) ), 'canonical compiler does not emit missing HTML for serialized block entries' );
 $canonical_delegation = bac_compile_website_artifact(
 	array(
 		'files' => array(
