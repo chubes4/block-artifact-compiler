@@ -8,10 +8,20 @@
       "library.php"
     ]
   },
+  "repositories": [
+    {
+      "type": "path",
+      "url": "../blocks-engine@draft-php-transformer-monorepo/php-transformer",
+      "options": {
+        "symlink": false
+      }
+    }
+  ],
   "scripts": {
     "test": "php tests/contract-smoke.php"
   },
   "require": {
+    "automattic/blocks-engine-php-transformer": "dev-draft/php-transformer-monorepo",
     "php": ">=8.1"
   }
 }

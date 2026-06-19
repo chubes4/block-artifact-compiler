@@ -26,13 +26,25 @@ class Block_Artifact_Compiler {
 	 * @return array<string,mixed> Compiler result envelope.
 	 */
 	public function compile( array $artifact, array $options = array() ): array {
+		$canonical = $this->canonical_compile($artifact);
 		$normalized  = $this->normalize_artifact($artifact, $options);
 		$documents   = $this->compile_source_documents($normalized, $options);
 		$entry       = $this->entry_file($normalized);
 		$block_entry = $this->entry_block_file($normalized);
 		$html        = is_array($entry) ? $entry['content'] : '';
 		$entry_path  = is_array($entry) ? $entry['path'] : '';
-		$diagnostics = array_merge($normalized['diagnostics'], $documents['diagnostics']);
+		$canonical_diagnostics = isset($canonical['diagnostics']) && is_array($canonical['diagnostics']) ? $canonical['diagnostics'] : array();
+		if ( ! is_array($entry) && is_array($block_entry) ) {
+			$canonical_diagnostics = array_values(array_filter(
+				$canonical_diagnostics,
+				static fn ( array $diagnostic ): bool => 'missing_entry_html' !== ( $diagnostic['code'] ?? '' )
+			));
+		}
+		$diagnostics = $this->dedupe_diagnostics(array_merge(
+			$normalized['diagnostics'],
+			$documents['diagnostics'],
+			$canonical_diagnostics
+		));
 
 		if ( '' === trim($html) && ! is_array($block_entry) && empty($documents['documents']) ) {
 			$diagnostics[] = $this->diagnostic('missing_entry_html', 'error', 'No HTML entry file was available to compile.');
@@ -63,11 +75,20 @@ class Block_Artifact_Compiler {
 		}
 		$source_report = $this->source_report($normalized, $entry_path, $html);
 
-		$diagnostics = array_merge($diagnostics, $conversion['diagnostics']);
-		$components  = $this->detect_components($normalized, $entry_path, $documents['components']);
-		$block_types = $this->build_block_types($normalized, $diagnostics);
+		$diagnostics = $this->dedupe_diagnostics(array_merge($diagnostics, $conversion['diagnostics']));
+		$components  = isset($canonical['components']) && is_array($canonical['components']) ? $canonical['components'] : $this->detect_components($normalized, $entry_path, $documents['components']);
+		if ( empty($components) ) {
+			$components = $this->detect_components($normalized, $entry_path, $documents['components']);
+		}
+		$block_types = isset($canonical['block_types']) && is_array($canonical['block_types']) ? $canonical['block_types'] : $this->build_block_types($normalized, $diagnostics);
+		if ( empty($block_types) ) {
+			$block_types = $this->build_block_types($normalized, $diagnostics);
+		}
 		$plugins     = $this->build_plugin_artifacts($normalized, $block_types);
-		$files       = $this->wordpress_files_from_artifact($normalized);
+		$files       = isset($canonical['assets']) && is_array($canonical['assets']) ? $canonical['assets'] : $this->wordpress_files_from_artifact($normalized);
+		if ( empty($files) ) {
+			$files = $this->wordpress_files_from_artifact($normalized);
+		}
 		if ( '' === trim($html) && ! is_array($block_entry) && ! empty($documents['documents'][0]['block_markup']) ) {
 			$conversion['serialized_blocks'] = (string) $documents['documents'][0]['block_markup'];
 			$conversion['blocks']            = isset($documents['documents'][0]['blocks']) && is_array($documents['documents'][0]['blocks']) ? $documents['documents'][0]['blocks'] : array();
@@ -124,6 +145,27 @@ class Block_Artifact_Compiler {
 			'diagnostics'         => $diagnostics,
 			'bfb_report'          => $conversion['report'],
 		);
+	}
+
+	/**
+	 * Compile through the canonical Blocks Engine transformer package.
+	 *
+	 * @param array<string,mixed> $artifact Website artifact input.
+	 * @return array<string,mixed> Canonical transformer result, or an empty array if the package is unavailable.
+	 */
+	private function canonical_compile( array $artifact ): array {
+		$compiler_class = 'Automattic\\BlocksEngine\\PhpTransformer\\ArtifactCompiler\\ArtifactCompiler';
+		if ( ! class_exists($compiler_class) ) {
+			return array();
+		}
+
+		$result = ( new $compiler_class() )->compile($artifact);
+		if ( ! is_object($result) || ! method_exists($result, 'toArray') ) {
+			return array();
+		}
+
+		$compiled = $result->toArray();
+		return is_array($compiled) ? $compiled : array();
 	}
 
 	/**
