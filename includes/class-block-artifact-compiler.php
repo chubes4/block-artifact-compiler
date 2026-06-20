@@ -107,7 +107,7 @@ class Block_Artifact_Compiler {
 				'blocks'       => $conversion['blocks'],
 				'block_tree'   => $this->block_tree_report($conversion['blocks'], $conversion['serialized_blocks']),
 				'document_metadata' => $entry_document['metadata'],
-				'site'         => $this->compiled_site_artifact($normalized, $documents['documents'], $template_parts, $regions),
+				'site'         => $this->compiled_site_artifact($normalized, $documents['documents'], $template_parts, $regions, $canonical),
 				'regions'      => $regions,
 				'template_parts' => $template_parts,
 				'asset_references' => $this->compiled_asset_references($conversion, $documents['documents'], $template_parts),
@@ -906,9 +906,11 @@ class Block_Artifact_Compiler {
 	 * @param  array<int,array<string,mixed>>              $documents      Compiled document artifacts.
 	 * @param  array<int,array<string,mixed>>              $template_parts Template part artifacts.
 	 * @param  array<int,array<string,mixed>>              $regions        Semantic region artifacts.
+	 * @param  array<string,mixed>                         $canonical      Canonical Blocks Engine result.
 	 * @return array<string,mixed> Compiled site artifact.
 	 */
-	private function compiled_site_artifact( array $artifact, array $documents, array $template_parts, array $regions ): array {
+	private function compiled_site_artifact( array $artifact, array $documents, array $template_parts, array $regions, array $canonical ): array {
+		$canonical_site = $this->canonical_compiled_site_report($canonical);
 		$shared_regions = $this->shared_region_contracts($regions);
 		$route_map      = array();
 		$rewrite_map    = array();
@@ -989,10 +991,44 @@ class Block_Artifact_Compiler {
 				},
 				$template_parts
 			),
-			'theme_assets'   => $this->theme_asset_contracts($artifact),
+			'theme_assets'   => $this->theme_asset_contracts($artifact, $canonical_site),
+			'blocks_engine'  => $this->blocks_engine_site_report_summary($canonical_site),
 			'provenance'     => array(
 				'source_hash' => hash('sha256', $this->artifact_hash_payload($artifact)),
 			),
+		);
+	}
+
+	/**
+	 * Extract the current Blocks Engine compiled-site report from the canonical result.
+	 *
+	 * @param array<string,mixed> $canonical Canonical Blocks Engine result.
+	 * @return array<string,mixed> Compiled-site report.
+	 */
+	private function canonical_compiled_site_report( array $canonical ): array {
+		$report = $canonical['source_reports']['compiled_site'] ?? array();
+		return is_array($report) ? $report : array();
+	}
+
+	/**
+	 * Preserve BAC's public report shape while exposing the canonical source report identity.
+	 *
+	 * @param array<string,mixed> $canonical_site Canonical compiled-site report.
+	 * @return array<string,mixed> Canonical report summary.
+	 */
+	private function blocks_engine_site_report_summary( array $canonical_site ): array {
+		if ( empty($canonical_site) ) {
+			return array();
+		}
+
+		return array_filter(
+			array(
+				'schema'      => isset($canonical_site['schema']) ? (string) $canonical_site['schema'] : '',
+				'source_hash' => isset($canonical_site['source_hash']) ? (string) $canonical_site['source_hash'] : '',
+				'entry_path'  => isset($canonical_site['entry_path']) ? (string) $canonical_site['entry_path'] : '',
+				'totals'      => isset($canonical_site['totals']) && is_array($canonical_site['totals']) ? $canonical_site['totals'] : array(),
+			),
+			static fn ( mixed $value ): bool => '' !== $value && array() !== $value
 		);
 	}
 
@@ -1087,14 +1123,45 @@ class Block_Artifact_Compiler {
 	/**
 	 * Return theme-level CSS and script assets for downstream materializers.
 	 *
-	 * @param  array{files:array<int,array<string,mixed>>} $artifact Normalized artifact.
+	 * @param  array{files:array<int,array<string,mixed>>} $artifact       Normalized artifact.
+	 * @param  array<string,mixed>                         $canonical_site Canonical compiled-site report.
 	 * @return array<string,array<int,array<string,mixed>>> Theme asset contract.
 	 */
-	private function theme_asset_contracts( array $artifact ): array {
+	private function theme_asset_contracts( array $artifact, array $canonical_site = array() ): array {
 		$assets = array(
 			'styles'  => array(),
 			'scripts' => array(),
 		);
+		$files_by_path = array();
+		foreach ( $artifact['files'] as $file ) {
+			$files_by_path[(string) $file['path']] = $file;
+		}
+
+		if ( isset($canonical_site['assets']) && is_array($canonical_site['assets']) ) {
+			foreach ( $canonical_site['assets'] as $asset ) {
+				if ( ! is_array($asset) ) {
+					continue;
+				}
+
+				$kind = (string) ( $asset['kind'] ?? '' );
+				$key  = 'css' === $kind ? 'styles' : ( 'js' === $kind ? 'scripts' : '' );
+				if ( '' === $key ) {
+					continue;
+				}
+
+				$path = (string) ( $asset['path'] ?? '' );
+				$source_file = $files_by_path[ $path ] ?? array();
+				$assets[ $key ][] = array(
+					'path'       => $path,
+					'role'       => (string) ( $asset['role'] ?? $source_file['role'] ?? '' ),
+					'intent'     => (string) ( $asset['intent'] ?? $source_file['intent'] ?? '' ),
+					'bytes'      => (int) ( $asset['bytes'] ?? $source_file['bytes'] ?? 0 ),
+					'provenance' => isset($source_file['provenance']) && is_array($source_file['provenance']) ? $source_file['provenance'] : array(),
+				);
+			}
+
+			return $assets;
+		}
 
 		foreach ( $artifact['files'] as $file ) {
 			if ( 'css' === $file['kind'] ) {

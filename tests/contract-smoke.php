@@ -310,15 +310,16 @@ $assert( 'about' === ( $compiled_site['route_map']['about/index.html'] ?? '' ), 
 $assert( '/menu/' === ( $compiled_site['link_rewrite_map']['menu.html']['target_path'] ?? '' ), 'compiled site link rewrite map includes non-index target path' );
 $assert( '/about/' === ( $compiled_site['link_rewrite_map']['about/index.html']['target_path'] ?? '' ), 'compiled site link rewrite map includes nested index target path' );
 
-$shared_chrome = bac_compile_website_artifact(
-	array(
+$shared_chrome_artifact = array(
 		'files' => array(
 			'home.html'  => '<!doctype html><html><body><header class="site-header">Shared nav</header><main><h1>Home</h1></main><footer>Shared footer</footer></body></html>',
 			'about.html' => '<!doctype html><html><body><header class="site-header">Shared nav</header><main><h1>About</h1></main><footer>Shared footer</footer></body></html>',
 			'site.css'   => 'body{font-family:sans-serif}',
 			'site.js'    => 'console.log("site")',
 		),
-	),
+	);
+$shared_chrome = bac_compile_website_artifact(
+	$shared_chrome_artifact,
 	$fallback_options
 );
 $shared_regions = $shared_chrome['wordpress_artifacts']['site']['shared_regions'] ?? array();
@@ -338,6 +339,13 @@ if ( ! $bfb_available ) {
 $assert( 2 === count( $shared_chrome['wordpress_artifacts']['site']['template_parts'] ?? array() ), 'compiled site artifact links template part artifacts' );
 $assert( 1 === count( $shared_chrome['wordpress_artifacts']['site']['theme_assets']['styles'] ?? array() ), 'compiled site artifact exposes theme style assets' );
 $assert( 1 === count( $shared_chrome['wordpress_artifacts']['site']['theme_assets']['scripts'] ?? array() ), 'compiled site artifact exposes theme script assets' );
+$shared_chrome_canonical = ( new $canonical_compiler_class() )->compile( $shared_chrome_artifact )->toArray();
+$shared_chrome_canonical_site = $shared_chrome_canonical['source_reports']['compiled_site'] ?? array();
+$assert( 'blocks-engine/php-transformer/compiled-site/v1' === ( $shared_chrome['wordpress_artifacts']['site']['blocks_engine']['schema'] ?? '' ), 'compiled site report exposes canonical Blocks Engine report schema' );
+$assert( ( $shared_chrome_canonical_site['source_hash'] ?? '' ) === ( $shared_chrome['wordpress_artifacts']['site']['blocks_engine']['source_hash'] ?? '' ), 'compiled site report preserves canonical Blocks Engine source hash' );
+$assert( ( $shared_chrome_canonical_site['totals']['pages'] ?? null ) === ( $shared_chrome['wordpress_artifacts']['site']['blocks_engine']['totals']['pages'] ?? null ), 'compiled site report preserves canonical Blocks Engine page total' );
+$assert( ( $shared_chrome_canonical_site['theme']['stylesheets'][0] ?? '' ) === ( $shared_chrome['wordpress_artifacts']['site']['theme_assets']['styles'][0]['path'] ?? '' ), 'BAC theme style assets are sourced from canonical Blocks Engine report' );
+$assert( ( $shared_chrome_canonical_site['theme']['scripts'][0] ?? '' ) === ( $shared_chrome['wordpress_artifacts']['site']['theme_assets']['scripts'][0]['path'] ?? '' ), 'BAC theme script assets are sourced from canonical Blocks Engine report' );
 
 if ( ! function_exists( 'html_to_blocks_convert_fragment' ) ) {
 	function html_to_blocks_convert_fragment( string $html, array $args = array() ): array {
