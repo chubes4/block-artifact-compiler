@@ -1,15 +1,14 @@
 # Block Artifact Compiler
 
-Block Artifact Compiler is the semantic compiler layer between generated website artifacts and WordPress materialization.
+Block Artifact Compiler is a compatibility wrapper between generated website artifacts and WordPress materialization.
 
-It is intentionally separate from Studio Web, Static Site Importer, Block Format Bridge, and HTML to Blocks Converter.
+The implementation delegates compilation to the canonical Blocks Engine PHP transformer and preserves the public `bac_*` APIs for existing consumers.
 
 ```text
 Studio Web
   -> Static Site Importer
       -> Block Artifact Compiler
-          -> Block Format Bridge
-              -> HTML to Blocks Converter
+          -> Blocks Engine PHP Transformer
 ```
 
 ## Responsibility
@@ -20,7 +19,7 @@ Canonical input schema: `block-artifact-compiler/website-artifact/v1`.
 
 Output: a WordPress-native artifact bundle.
 
-The contract accepts messy AI-generated artifact shapes and normalizes them into a bounded, safe envelope before lower-level conversion runs. It accepts:
+The canonical Blocks Engine transformer accepts messy AI-generated artifact shapes and normalizes them into a bounded, safe envelope before lower-level conversion runs. Through BAC's public wrapper APIs it accepts:
 
 - `files`, `artifacts`, or `outputs` arrays
 - path-to-content maps
@@ -38,10 +37,8 @@ BAC treats Markdown and MDX as source documents, not generic assets:
 - `.md` and `.markdown` normalize as `kind: markdown` with `text/markdown`
 - `.mdx` normalizes as `kind: mdx` with BAC-local MIME type `text/mdx`
 - frontmatter maps to WordPress document metadata such as title, slug, post type, excerpt, date, template, and taxonomy hints
-- Markdown bodies are converted through Block Format Bridge when available
-- missing Block Format Bridge fails compilation by default when source conversion is required
-- `allow_bfb_unavailable_fallback` can be enabled for explicit standalone/test smoke coverage; that mode preserves source content in `core/html` and emits fallback diagnostics
-- MDX bodies are reduced to Markdown-compatible text where feasible, while JSX imports/components stay inspectable as conservative candidates and diagnostics
+- Markdown bodies are converted or preserved according to the canonical transformer behavior available in the active runtime
+- MDX bodies are reduced to Markdown-compatible text where feasible by the canonical transformer, while JSX imports/components stay inspectable as conservative candidates and diagnostics
 - MDX/JSX handling is candidate extraction only; BAC does not evaluate MDX runtime semantics or compile JSX components
 
 The compiler result returns:
@@ -65,11 +62,13 @@ Block type artifacts are normalized compiler output, not generation prompt const
 
 Plugin artifacts follow the same rule. BAC detects WordPress plugin headers, preserves safe header metadata and source file inventories, links generated `block.json` artifacts inside the plugin directory, and reports requirements without installing, activating, or resolving external plugins. Downstream materializers such as Static Site Importer can decide whether a `provided` plugin/custom-block artifact should be promoted or whether an `external` custom-block requirement needs a preinstalled dependency.
 
-## Blocks Engine Transformer Migration
+## Blocks Engine Transformer Wrapper
 
-BAC is migrating its implementation toward the canonical `ArtifactCompiler` in `automattic/blocks-engine-php-transformer`. Until that package is published from Blocks Engine, this repository only uses the transformer as a development/path-repository proof. Runtime installs must not depend on the unpublished remote package; BAC continues to compile through its local compatibility path when the canonical class is unavailable.
+BAC is a thin compatibility layer over the canonical Blocks Engine PHP transformer. It delegates to the active `blocks_engine_php_transformer_compile_artifact()` plugin helper when present, or to `Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler` when the class is available through Composer autoloading.
 
-The migration wrapper also preserves BAC-owned serialized block entry behavior while the upstream compiler is still HTML/document-entry first. Inputs such as `.blocks` files or `bac_compile_fragment( ..., 'blocks' )` continue to return the serialized block markup directly and do not fail only because no HTML entry exists.
+The Composer configuration uses the local Blocks Engine `php-transformer` path repository for development and tests; it does not depend on a Packagist release. If neither the plugin helper nor canonical class is available, BAC returns a failed BAC-shaped envelope with a dependency diagnostic instead of compiling through the removed local compiler implementation.
+
+The wrapper preserves BAC-owned API compatibility for `bac_compile_website_artifact()`, `bac_compile_fragment()`, and `bac_summarize_result()`. `bac_compile_fragment( ..., 'blocks' )` still routes serialized block fragments through an HTML-like artifact entry path so existing consumers receive canonical serialized block markup directly.
 
 ## Public API
 
