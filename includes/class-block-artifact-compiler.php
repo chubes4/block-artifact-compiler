@@ -28,7 +28,7 @@ class Block_Artifact_Compiler {
 	public function compile( array $artifact, array $options = array() ): array {
 		$canonical = $this->canonical_compile($artifact);
 		$normalized  = $this->normalize_artifact($artifact, $options);
-		$documents   = $this->compile_source_documents($normalized, $options);
+		$documents   = $this->compile_source_documents($normalized, $options, $canonical);
 		$entry       = $this->entry_file($normalized);
 		$block_entry = $this->entry_block_file($normalized);
 		$html        = is_array($entry) ? $entry['content'] : '';
@@ -73,7 +73,7 @@ class Block_Artifact_Compiler {
 		$diagnostics = $this->dedupe_diagnostics(array_merge($diagnostics, $conversion['diagnostics']));
 		$components  = isset($canonical['components']) && is_array($canonical['components']) ? $canonical['components'] : array();
 		$block_types = isset($canonical['block_types']) && is_array($canonical['block_types']) ? $canonical['block_types'] : array();
-		$plugins     = $this->build_plugin_artifacts($normalized, $block_types);
+		$plugins     = $this->build_plugin_artifacts($normalized, $block_types, $canonical);
 		$files       = isset($canonical['assets']) && is_array($canonical['assets']) ? $canonical['assets'] : array();
 		if ( '' === trim($html) && ! is_array($block_entry) && ! empty($documents['documents'][0]['block_markup']) ) {
 			$conversion['serialized_blocks'] = (string) $documents['documents'][0]['block_markup'];
@@ -81,10 +81,10 @@ class Block_Artifact_Compiler {
 			$conversion['report']            = isset($documents['documents'][0]['bfb_report']) && is_array($documents['documents'][0]['bfb_report']) ? $documents['documents'][0]['bfb_report'] : array();
 			$conversion['selector_provenance'] = isset($documents['documents'][0]['selector_provenance']) && is_array($documents['documents'][0]['selector_provenance']) ? $documents['documents'][0]['selector_provenance'] : array();
 		}
-		$requirements   = $this->build_artifact_requirements($conversion['serialized_blocks'], $block_types, $plugins);
-		$template_parts = $this->template_part_artifacts($normalized, $entry_path, $options);
-		$regions        = $this->semantic_region_contracts($normalized);
-		$visual_repair  = $this->visual_repair_artifacts($normalized, $conversion, $documents['documents'], $template_parts);
+		$requirements   = $this->build_artifact_requirements($conversion['serialized_blocks'], $block_types, $plugins, $canonical);
+		$template_parts = $this->template_part_artifacts($normalized, $entry_path, $options, $canonical);
+		$regions        = $this->semantic_region_contracts($normalized, $canonical);
+		$visual_repair  = $this->visual_repair_artifacts($normalized, $conversion, $documents['documents'], $template_parts, $canonical);
 
 		return array(
 			'schema'              => self::RESULT_SCHEMA,
@@ -1085,71 +1085,10 @@ class Block_Artifact_Compiler {
 	 * @param  array{files:array<int,array<string,mixed>>} $artifact Normalized artifact.
 	 * @return array<int,array<string,mixed>> Region contracts grouped by role and source hash.
 	 */
-	private function semantic_region_contracts( array $artifact ): array {
-		$regions = array();
-		foreach ( $artifact['files'] as $file ) {
-			if ( 'html' !== $file['kind'] || ! empty($file['binary']) ) {
-				continue;
-			}
-
-			foreach ( $this->html_region_candidates((string) $file['content']) as $region ) {
-				$key = (string) $region['role'] . ':' . (string) $region['hash'];
-				if ( ! isset($regions[ $key ]) ) {
-					$regions[ $key ] = array(
-						'role'           => $region['role'],
-						'source_paths'   => array(),
-						'source_hash'    => $region['hash'],
-						'source_excerpt' => $region['excerpt'],
-						'source_html'    => $region['html'],
-					);
-				}
-				$regions[ $key ]['source_paths'][] = $file['path'];
-			}
-		}
-
-		return array_values($regions);
-	}
-
-	/**
-	 * Extract region candidates from one HTML document.
-	 *
-	 * @return array<int,array{role:string,hash:string,excerpt:string,html:string}>
-	 */
-	private function html_region_candidates( string $html ): array {
-		if ( '' === trim($html) || ! class_exists('DOMDocument') ) {
-			return array();
-		}
-
-		$doc      = new DOMDocument();
-		$previous = libxml_use_internal_errors(true);
-		$loaded   = $doc->loadHTML($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-		libxml_clear_errors();
-		libxml_use_internal_errors($previous);
-		if ( ! $loaded ) {
-			return array();
-		}
-
-		$regions = array();
-		foreach ( array( 'header', 'nav', 'main', 'article', 'section', 'aside', 'footer' ) as $tag ) {
-			foreach ( $doc->getElementsByTagName($tag) as $node ) {
-				if ( ! $node instanceof DOMElement ) {
-					continue;
-				}
-				$markup = trim((string) $doc->saveHTML($node));
-				if ( '' === $markup ) {
-					continue;
-				}
-
-				$regions[] = array(
-					'role'    => $tag,
-					'hash'    => hash('sha256', $markup),
-					'excerpt' => substr(preg_replace('/\s+/', ' ', $markup) ?? $markup, 0, 240),
-					'html'    => $markup,
-				);
-			}
-		}
-
-		return $regions;
+	private function semantic_region_contracts( array $artifact, array $canonical ): array {
+		unset($artifact);
+		$regions = $canonical['source_reports']['compiled_site']['regions'] ?? array();
+		return is_array($regions) ? array_values(array_filter($regions, 'is_array')) : array();
 	}
 
 	/**
@@ -1227,77 +1166,30 @@ class Block_Artifact_Compiler {
 	 * @param  array<string,mixed>                         $options  Conversion options.
 	 * @return array<int,array<string,mixed>> Template part artifacts.
 	 */
-	private function template_part_artifacts( array $artifact, string $entry_path, array $options ): array {
-		$template_parts = array();
-		foreach ( $this->canonical_template_part_regions($artifact, $entry_path) as $region ) {
-			$role = (string) ( $region['role'] ?? '' );
-			$source_html = (string) ( $region['source_html'] ?? '' );
-			$conversion  = $this->convert_content_to_blocks($source_html, 'html', $options);
-
-			$template_parts[] = array(
-				'schema'                => 'block-artifact-compiler/template-part/v1',
-				'slug'                  => $role,
-				'area'                  => $role,
-				'source_paths'          => isset($region['source_paths']) && is_array($region['source_paths']) ? $region['source_paths'] : array(),
-				'source_hash'           => (string) ( $region['source_hash'] ?? '' ),
-				'source_excerpt'        => (string) ( $region['source_excerpt'] ?? '' ),
-				'block_markup'          => $conversion['serialized_blocks'],
-				'blocks'                => $conversion['blocks'],
-				'diagnostics'           => $conversion['diagnostics'],
-				'bfb_report'            => $conversion['report'],
-				'asset_references'      => $conversion['asset_references'],
-				'svg_icon_artifacts'    => $conversion['svg_icon_artifacts'],
-				'navigation_candidates' => $conversion['navigation_candidates'],
-				'visual_repair_metadata' => $conversion['visual_repair_metadata'],
-				'selector_provenance'   => $conversion['selector_provenance'],
-			);
+	private function template_part_artifacts( array $artifact, string $entry_path, array $options, array $canonical ): array {
+		unset($artifact, $entry_path, $options);
+		$canonical_parts = $canonical['source_reports']['compiled_site']['template_parts'] ?? array();
+		if ( ! is_array($canonical_parts) ) {
+			return array();
 		}
 
-		return $template_parts;
-	}
-
-	/**
-	 * Select one canonical header/footer region per role for materializers.
-	 *
-	 * @param  array{files:array<int,array<string,mixed>>} $artifact   Normalized artifact.
-	 * @param  string                                      $entry_path Entrypoint path.
-	 * @return array<int,array<string,mixed>> Canonical region contracts.
-	 */
-	private function canonical_template_part_regions( array $artifact, string $entry_path ): array {
-		$selected = array();
-		foreach ( $this->semantic_region_contracts($artifact) as $region ) {
-			$role = (string) ( $region['role'] ?? '' );
-			if ( ! in_array($role, array( 'header', 'footer' ), true) ) {
-				continue;
-			}
-
-			if ( ! isset($selected[ $role ]) || $this->is_preferred_template_part_region($region, $selected[ $role ], $entry_path) ) {
-				$selected[ $role ] = $region;
-			}
-		}
-
-		return array_values($selected);
-	}
-
-	/**
-	 * Prefer the entrypoint region, then the most widely reused region.
-	 *
-	 * @param array<string,mixed> $candidate Candidate region.
-	 * @param array<string,mixed> $current   Current selected region.
-	 * @param string              $entry_path Entrypoint path.
-	 * @return bool Whether the candidate should replace the current region.
-	 */
-	private function is_preferred_template_part_region( array $candidate, array $current, string $entry_path ): bool {
-		$candidate_paths = isset($candidate['source_paths']) && is_array($candidate['source_paths']) ? $candidate['source_paths'] : array();
-		$current_paths   = isset($current['source_paths']) && is_array($current['source_paths']) ? $current['source_paths'] : array();
-		$candidate_entry = '' !== $entry_path && in_array($entry_path, $candidate_paths, true);
-		$current_entry   = '' !== $entry_path && in_array($entry_path, $current_paths, true);
-
-		if ( $candidate_entry !== $current_entry ) {
-			return $candidate_entry;
-		}
-
-		return count($candidate_paths) > count($current_paths);
+		return array_values(array_map(
+			static function ( array $part ): array {
+				$source_path = (string) ( $part['source_path'] ?? '' );
+				return array(
+					'schema'       => 'block-artifact-compiler/template-part/v1',
+					'slug'         => (string) ( $part['slug'] ?? '' ),
+					'area'         => (string) ( $part['area'] ?? '' ),
+					'source_paths' => '' === $source_path ? array() : array( $source_path ),
+					'source_hash'  => (string) ( $part['provenance']['hash'] ?? '' ),
+					'block_markup' => (string) ( $part['block_markup'] ?? '' ),
+					'blocks'       => array(),
+					'diagnostics'  => array(),
+					'bfb_report'   => array( 'source' => 'blocks-engine' ),
+				);
+			},
+			array_filter($canonical_parts, 'is_array')
+		));
 	}
 
 	/**
@@ -1384,100 +1276,31 @@ class Block_Artifact_Compiler {
 	 * @param array<int,array<string,mixed>>              $template_parts Template part artifacts.
 	 * @return array<string,mixed> Visual repair artifact envelope.
 	 */
-	private function visual_repair_artifacts( array $artifact, array $entry_conversion, array $documents, array $template_parts ): array {
-		$metadata = $this->compiled_visual_repair_metadata($entry_conversion, $documents, $template_parts);
-		$css      = $this->source_css($artifact['files']);
-		$frontend = $this->visual_repair_frontend_css($css, $metadata);
-		$editor   = $this->visual_repair_editor_css($css, $metadata);
-		$styles   = array();
+	private function visual_repair_artifacts( array $artifact, array $entry_conversion, array $documents, array $template_parts, array $canonical ): array {
+		unset($artifact, $entry_conversion, $documents, $template_parts);
+		$repair = $canonical['source_reports']['compiled_site']['visual_repair'] ?? array();
+		if ( ! is_array($repair) ) {
+			$repair = array();
+		}
 
-		if ( '' !== trim($frontend) ) {
+		$styles = array();
+		if ( '' !== trim((string) ( $repair['css'] ?? '' )) ) {
 			$styles[] = array(
 				'schema'  => 'block-artifact-compiler/visual-repair-css/v1',
 				'target'  => 'frontend',
 				'path'    => 'assets/css/visual-repair.css',
-				'content' => $frontend,
-			);
-		}
-
-		if ( '' !== trim($editor) ) {
-			$styles[] = array(
-				'schema'  => 'block-artifact-compiler/visual-repair-css/v1',
-				'target'  => 'editor',
-				'path'    => 'assets/css/visual-repair-editor.css',
-				'content' => $editor,
+				'content' => (string) $repair['css'],
 			);
 		}
 
 		return array(
 			'schema'   => 'block-artifact-compiler/visual-repair-artifacts/v1',
-			'metadata' => $metadata,
+			'metadata' => array(
+				'schema'      => 'blocks-engine/php-transformer/visual-repair/v1',
+				'stylesheets' => isset($repair['stylesheets']) && is_array($repair['stylesheets']) ? $repair['stylesheets'] : array(),
+			),
 			'styles'   => $styles,
 		);
-	}
-
-	/**
-	 * Merge visual repair metadata from entry, documents, and template parts.
-	 *
-	 * @param array<string,mixed>            $entry_conversion Entry conversion result.
-	 * @param array<int,array<string,mixed>> $documents        Document artifacts.
-	 * @param array<int,array<string,mixed>> $template_parts   Template part artifacts.
-	 * @return array<string,mixed> Merged metadata.
-	 */
-	private function compiled_visual_repair_metadata( array $entry_conversion, array $documents, array $template_parts ): array {
-		$metadata = array(
-			'schema'     => 'block-artifact-compiler/visual-repair-metadata/v1',
-			'categories' => array(
-				'groups'     => array(),
-				'images'     => array(),
-				'forms'      => array(),
-				'navigation' => array(),
-				'buttons'    => array(),
-				'decorative' => array(),
-				'fallbacks'  => array(),
-			),
-		);
-
-		$this->merge_visual_repair_metadata($metadata, $entry_conversion['visual_repair_metadata'] ?? array(), 'entry', '');
-		foreach ( $documents as $document ) {
-			$this->merge_visual_repair_metadata($metadata, $document['visual_repair_metadata'] ?? array(), 'document', (string) ( $document['source_path'] ?? '' ));
-		}
-		foreach ( $template_parts as $template_part ) {
-			$this->merge_visual_repair_metadata($metadata, $template_part['visual_repair_metadata'] ?? array(), 'template_part', (string) ( $template_part['slug'] ?? '' ));
-		}
-
-		foreach ( $metadata['categories'] as $category => $records ) {
-			$metadata['categories'][ $category ] = $this->dedupe_reference_rows($records);
-		}
-
-		return $metadata;
-	}
-
-	/**
-	 * Merge one H2BC visual repair metadata payload into the compiler payload.
-	 *
-	 * @param array<string,mixed> $target      Target metadata.
-	 * @param mixed               $source      Source metadata.
-	 * @param string              $scope       Source scope.
-	 * @param string              $source_path Source path or slug.
-	 */
-	private function merge_visual_repair_metadata( array &$target, mixed $source, string $scope, string $source_path ): void {
-		if ( ! is_array($source) || empty($source['categories']) || ! is_array($source['categories']) ) {
-			return;
-		}
-
-		foreach ( $target['categories'] as $category => $records ) {
-			$items = isset($source['categories'][ $category ]) && is_array($source['categories'][ $category ]) ? $source['categories'][ $category ] : array();
-			foreach ( $items as $item ) {
-				if ( ! is_array($item) ) {
-					continue;
-				}
-
-				$item['scope']       = $scope;
-				$item['source_path'] = $source_path;
-				$target['categories'][ $category ][] = $item;
-			}
-		}
 	}
 
 	/**
@@ -1494,305 +1317,6 @@ class Block_Artifact_Compiler {
 		}
 
 		return $counts;
-	}
-
-	/**
-	 * Concatenate normalized source CSS files.
-	 *
-	 * @param array<int,array<string,mixed>> $files Normalized files.
-	 * @return string Source CSS.
-	 */
-	private function source_css( array $files ): string {
-		$css = '';
-		foreach ( $files as $file ) {
-			if ( 'css' !== ( $file['kind'] ?? '' ) || ! empty($file['binary']) ) {
-				continue;
-			}
-			$css .= "\n" . (string) ( $file['content'] ?? '' );
-		}
-
-		return $css;
-	}
-
-	/**
-	 * Build frontend visual repair CSS.
-	 *
-	 * @param string              $css      Source CSS.
-	 * @param array<string,mixed> $metadata Merged repair metadata.
-	 * @return string CSS rules.
-	 */
-	private function visual_repair_frontend_css( string $css, array $metadata ): string {
-		$rules = array();
-		if ( ! empty($metadata['categories']['groups']) ) {
-			$rules[] = '.wp-block-post-content.is-layout-flow > *, .wp-block-group.is-layout-flow > *, .wp-block-group.is-vertical > * { margin-block-start: 0; margin-block-end: 0; }';
-			$rules[] = '.wp-block-group.is-layout-flex, .wp-block-group.is-vertical { gap: 0; }';
-		}
-
-		$rules = array_merge($rules, $this->nav_selector_bridge_rules($css, $metadata));
-		$rules = array_merge($rules, $this->button_style_bridge_rules($css, $metadata));
-
-		return empty($rules) ? '' : "/* Block Artifact Compiler: visual repair artifacts. */\n" . implode("\n", array_values(array_unique($rules))) . "\n";
-	}
-
-	/**
-	 * Build editor-only visual repair CSS.
-	 *
-	 * @param string              $css      Source CSS.
-	 * @param array<string,mixed> $metadata Merged repair metadata.
-	 * @return string CSS rules.
-	 */
-	private function visual_repair_editor_css( string $css, array $metadata ): string {
-		$rules = array();
-		$decorative_classes = $this->visual_repair_classes($metadata, 'decorative');
-		foreach ( $decorative_classes as $class ) {
-			$rules[] = '.editor-styles-wrapper .wp-block-group.' . $class . ' .block-editor-block-variation-picker, .editor-styles-wrapper .wp-block-group.' . $class . ' .components-placeholder, .editor-styles-wrapper .wp-block-group.' . $class . ' .block-list-appender, .editor-styles-wrapper .wp-block-group.' . $class . ' .block-editor-button-block-appender { display: none; }';
-		}
-
-		foreach ( $this->absolute_position_classes_from_css($css) as $class ) {
-			$rules[] = '.editor-styles-wrapper .block-editor-block-list__layout > .wp-block:has(> .' . $class . ') { display: contents; }';
-		}
-		foreach ( $this->reveal_animation_classes_from_css($css) as $class ) {
-			$rules[] = '.editor-styles-wrapper .' . $class . ' { opacity: 1 !important; transform: none !important; }';
-		}
-
-		return empty($rules) ? '' : "/* Block Artifact Compiler: editor visual repair artifacts. */\n" . implode("\n", array_values(array_unique($rules))) . "\n";
-	}
-
-	/**
-	 * Build bridge rules for source nav selectors converted to group/nav blocks.
-	 *
-	 * @param string              $css      Source CSS.
-	 * @param array<string,mixed> $metadata Merged repair metadata.
-	 * @return array<int,string> CSS rules.
-	 */
-	private function nav_selector_bridge_rules( string $css, array $metadata ): array {
-		$classes = $this->visual_repair_classes($metadata, 'navigation');
-		if ( '' === trim($css) || empty($classes) || ! str_contains(strtolower($css), 'nav') ) {
-			return array();
-		}
-
-		$rules = array();
-		foreach ( $this->css_rule_blocks($css) as $rule ) {
-			$selectors = array();
-			foreach ( explode(',', $rule['selector']) as $selector ) {
-				$selector = trim($selector);
-				if ( ! preg_match('/(^|[\s>+~])nav(?=($|[\s>+~.#:\[]))/', $selector) ) {
-					continue;
-				}
-				foreach ( $classes as $class ) {
-					$selectors[] = preg_replace('/(^|[\s>+~])nav(?=($|[\s>+~.#:\[]))/', '$1.wp-block-group.' . $class, $selector) ?? $selector;
-				}
-			}
-			if ( ! empty($selectors) ) {
-				$rules[] = implode(', ', array_values(array_unique($selectors))) . ' { ' . $rule['body'] . ' }';
-			}
-		}
-
-		return $rules;
-	}
-
-	/**
-	 * Build bridge rules that move source button wrapper classes to button links.
-	 *
-	 * @param string              $css      Source CSS.
-	 * @param array<string,mixed> $metadata Merged repair metadata.
-	 * @return array<int,string> CSS rules.
-	 */
-	private function button_style_bridge_rules( string $css, array $metadata ): array {
-		$classes = $this->visual_repair_classes($metadata, 'buttons');
-		if ( empty($classes) ) {
-			return array();
-		}
-
-		$rules = array();
-		foreach ( $classes as $class ) {
-			$rules[] = '.wp-block-button.' . $class . ' .wp-block-button__link { color: inherit; background: inherit; border: inherit; border-radius: inherit; box-shadow: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-decoration: inherit; }';
-		}
-
-		foreach ( $this->css_rule_blocks($css) as $rule ) {
-			$selectors = array();
-			foreach ( explode(',', $rule['selector']) as $selector ) {
-				$selector = trim($selector);
-				foreach ( $classes as $class ) {
-					if ( preg_match('/(^|[^A-Za-z0-9_-])\.' . preg_quote($class, '/') . '(?=$|[^A-Za-z0-9_-])/', $selector) ) {
-						$selectors[] = '.wp-block-button.' . $class . ' .wp-block-button__link';
-					}
-				}
-			}
-			if ( ! empty($selectors) ) {
-				$rules[] = implode(', ', array_values(array_unique($selectors))) . ' { ' . $rule['body'] . ' }';
-			}
-		}
-
-		return $rules;
-	}
-
-	/**
-	 * Extract class names from one repair category.
-	 *
-	 * @param array<string,mixed> $metadata Repair metadata.
-	 * @param string              $category Category name.
-	 * @return array<int,string> Class names.
-	 */
-	private function visual_repair_classes( array $metadata, string $category ): array {
-		$classes = array();
-		$records = $metadata['categories'][ $category ] ?? array();
-		if ( ! is_array($records) ) {
-			return array();
-		}
-
-		foreach ( $records as $record ) {
-			if ( ! is_array($record) || empty($record['classes']) || ! is_array($record['classes']) ) {
-				continue;
-			}
-			foreach ( $record['classes'] as $class ) {
-				$class = (string) $class;
-				if ( preg_match('/^[A-Za-z_-][A-Za-z0-9_-]*$/', $class) ) {
-					$classes[] = $class;
-				}
-			}
-		}
-
-		sort($classes, SORT_STRING);
-		return array_values(array_unique($classes));
-	}
-
-	/**
-	 * Parse simple CSS rule blocks, including nested at-rule bodies as flat rules.
-	 *
-	 * @param string $css CSS.
-	 * @return array<int,array{selector:string,body:string}>
-	 */
-	private function css_rule_blocks( string $css ): array {
-		$css = preg_replace('/\/\*.*?\*\//s', '', $css) ?? $css;
-		$rules = array();
-		$length = strlen($css);
-		$offset = 0;
-		while ( $offset < $length && preg_match('/\G\s*([^{}]+)\{/', $css, $match, 0, $offset) ) {
-			$selector = trim($match[1]);
-			$body_start = $offset + strlen($match[0]);
-			$body_end = $this->find_css_block_end($css, $body_start);
-			if ( null === $body_end ) {
-				break;
-			}
-			$body = trim(substr($css, $body_start, $body_end - $body_start));
-			$offset = $body_end + 1;
-			if ( str_starts_with($selector, '@') ) {
-				foreach ( $this->css_rule_blocks($body) as $nested ) {
-					$rules[] = array(
-						'selector' => $nested['selector'],
-						'body'     => $nested['body'],
-					);
-				}
-				continue;
-			}
-			$rules[] = array(
-				'selector' => $selector,
-				'body'     => $body,
-			);
-		}
-
-		return $rules;
-	}
-
-	/**
-	 * Find a CSS block end offset.
-	 *
-	 * @param string $css CSS.
-	 * @param int    $offset Body start offset.
-	 * @return int|null Closing brace offset.
-	 */
-	private function find_css_block_end( string $css, int $offset ): ?int {
-		$depth = 1;
-		$length = strlen($css);
-		for ( $i = $offset; $i < $length; $i++ ) {
-			if ( '{' === $css[ $i ] ) {
-				++$depth;
-			} elseif ( '}' === $css[ $i ] ) {
-				--$depth;
-				if ( 0 === $depth ) {
-					return $i;
-				}
-			}
-		}
-
-		return null;
-	}
-
-	/**
-	 * Collect classes from source rules that position visual overlays absolutely.
-	 *
-	 * @param string $css CSS.
-	 * @return array<int,string> Class names.
-	 */
-	private function absolute_position_classes_from_css( string $css ): array {
-		$classes = array();
-		foreach ( $this->css_rule_blocks($css) as $rule ) {
-			if ( ! preg_match('/(?:^|;)\s*position\s*:\s*absolute\s*(?:;|$)/i', $rule['body']) ) {
-				continue;
-			}
-			foreach ( explode(',', $rule['selector']) as $selector ) {
-				$classes = array_merge($classes, $this->selector_terminal_classes(trim($selector)));
-			}
-		}
-
-		sort($classes, SORT_STRING);
-		return array_values(array_unique($classes));
-	}
-
-	/**
-	 * Collect classes from source rules hidden until JavaScript reveal.
-	 *
-	 * @param string $css CSS.
-	 * @return array<int,string> Class names.
-	 */
-	private function reveal_animation_classes_from_css( string $css ): array {
-		$classes = array();
-		foreach ( $this->css_rule_blocks($css) as $rule ) {
-			$opacity = $this->css_declaration_value($rule['body'], 'opacity');
-			$transform = $this->css_declaration_value($rule['body'], 'transform');
-			if ( null === $opacity || ! preg_match('/^0(?:\.0+)?%?$/', trim(preg_replace('/\s*!important\s*$/i', '', $opacity) ?? $opacity)) || null === $transform || preg_match('/^none\s*(?:!important\s*)?$/i', $transform) ) {
-				continue;
-			}
-			foreach ( explode(',', $rule['selector']) as $selector ) {
-				$classes = array_merge($classes, $this->selector_terminal_classes(trim($selector)));
-			}
-		}
-
-		sort($classes, SORT_STRING);
-		return array_values(array_unique($classes));
-	}
-
-	/**
-	 * Extract one CSS declaration value from a rule body.
-	 *
-	 * @param string $body     Declaration body.
-	 * @param string $property Property name.
-	 * @return string|null Value.
-	 */
-	private function css_declaration_value( string $body, string $property ): ?string {
-		if ( ! preg_match('/(?:^|;)\s*' . preg_quote($property, '/') . '\s*:\s*([^;]+)\s*(?:;|$)/i', $body, $match) ) {
-			return null;
-		}
-
-		return trim($match[1]);
-	}
-
-	/**
-	 * Extract terminal class names from a selector.
-	 *
-	 * @param string $selector CSS selector.
-	 * @return array<int,string> Class names.
-	 */
-	private function selector_terminal_classes( string $selector ): array {
-		if ( '' === $selector || ! preg_match('/([^\s>+~]+)(?::[A-Za-z_-][A-Za-z0-9_-]*(?:\([^)]*\))?)*\s*$/', $selector, $selector_match) ) {
-			return array();
-		}
-		if ( ! preg_match_all('/\.([A-Za-z_-][A-Za-z0-9_-]*)/', $selector_match[1], $class_matches) ) {
-			return array();
-		}
-
-		return array_values(array_unique($class_matches[1]));
 	}
 
 	/**
@@ -2086,144 +1610,75 @@ class Block_Artifact_Compiler {
 	 * @param  array<string,mixed>                         $options  Compiler options.
 	 * @return array{documents:array<int,array<string,mixed>>,components:array<int,array<string,mixed>>,diagnostics:array<int,array<string,mixed>>}
 	 */
-	private function compile_source_documents( array $artifact, array $options ): array {
-		$documents   = array();
-		$components  = array();
-		$diagnostics = array();
-		$route_root  = $this->site_route_root($artifact);
+	private function compile_source_documents( array $artifact, array $options, array $canonical ): array {
+		unset($options);
+		$documents = array();
+		$route_root = $this->site_route_root($artifact);
+		$entry_path = (string) ( $canonical['source_reports']['artifact']['entry_path'] ?? '' );
+		foreach ( $canonical['documents'] ?? array() as $document ) {
+			if ( is_array($document) ) {
+				$documents[] = $this->canonical_document_to_bac_document($document, $route_root, $entry_path);
+			}
+		}
 
-		foreach ( $artifact['files'] as $file ) {
-			if ( ! in_array($file['kind'], array( 'html', 'markdown', 'mdx' ), true) ) {
+		foreach ( $canonical['source_reports']['compiled_site']['pages'] ?? array() as $page ) {
+			if ( ! is_array($page) || 'html' !== ( $page['kind'] ?? '' ) ) {
 				continue;
 			}
-			$is_explicit_entrypoint = in_array($file['path'], $artifact['declared_entrypoints'] ?? array(), true);
-
-			if ( 'html' === $file['kind'] ) {
-				$document             = $this->entry_document_contract($file['content'], $file['path']);
-				$conversion           = $this->convert_content_to_blocks($document['body_html'], 'html', $options);
-				$document_diagnostics = $conversion['diagnostics'];
-				$diagnostics          = array_merge($diagnostics, $document_diagnostics);
-				$metadata             = $document['metadata'];
-				$title                = '' !== (string) ( $metadata['title'] ?? '' ) ? (string) $metadata['title'] : $this->title_from_path($file['path']);
-				$identity             = $this->page_identity_from_source($file['path'], $route_root, $is_explicit_entrypoint, '', $title);
-
-				$documents[] = array_merge(
-					$identity,
-					array(
-						'source_path'       => $file['path'],
-						'kind'              => 'html',
-						'post_type'         => 'page',
-						'post_status'       => 'publish',
-						'status'            => 'publish',
-						'slug'              => $identity['canonical_slug'],
-						'title'             => $title,
-						'excerpt'           => '',
-						'date'              => '',
-						'template'          => '',
-						'taxonomies'        => array(),
-						'entrypoint'        => $is_explicit_entrypoint,
-						'metadata'          => array(
-							'title'     => $title,
-							'slug'      => $identity['canonical_slug'],
-							'status'    => 'publish',
-							'post_type' => 'page',
-						),
-						'document_metadata' => $metadata,
-						'block_markup'      => $conversion['serialized_blocks'],
-						'blocks'            => $conversion['blocks'],
-						'bfb_report'        => $conversion['report'],
-						'asset_references'  => $conversion['asset_references'],
-						'svg_icon_artifacts' => $conversion['svg_icon_artifacts'],
-						'navigation_candidates' => $conversion['navigation_candidates'],
-						'visual_repair_metadata' => $conversion['visual_repair_metadata'],
-						'selector_provenance' => $conversion['selector_provenance'],
-						'diagnostics'       => $document_diagnostics,
-						'provenance'        => $file['provenance'],
-					)
-				);
-				continue;
-			}
-
-			$parsed               = $this->parse_frontmatter($file['content']);
-			$body                 = $parsed['body'];
-			$frontmatter          = $parsed['frontmatter'];
-			$document_diagnostics = array();
-
-			if ( 'mdx' === $file['kind'] ) {
-				$mdx                  = $this->extract_mdx_semantics($body, $file, $artifact);
-				$body                 = $mdx['markdown_body'];
-				$components           = array_merge($components, $mdx['components']);
-				$document_diagnostics = array_merge($document_diagnostics, $mdx['diagnostics']);
-			}
-
-			$conversion           = $this->convert_content_to_blocks($body, 'markdown', $options);
-			$document_diagnostics = array_merge($document_diagnostics, $conversion['diagnostics']);
-			$diagnostics          = array_merge($diagnostics, $document_diagnostics);
-
-			$post_type = $this->frontmatter_string($frontmatter, array( 'post_type', 'type' ), 'page');
-			$status    = $this->frontmatter_string($frontmatter, array( 'status', 'post_status' ), 'publish');
-			$title     = $this->frontmatter_string($frontmatter, array( 'title' ), $this->title_from_path($file['path']));
-			$identity  = $this->page_identity_from_source($file['path'], $route_root, $is_explicit_entrypoint, $this->frontmatter_string($frontmatter, array( 'slug' ), ''), $title);
-
-			$documents[] = array_merge(
-				$identity,
-				array(
-					'source_path'  => $file['path'],
-					'kind'         => $file['kind'],
-					'post_type'    => $post_type,
-					'post_status'  => $status,
-					'status'       => $status,
-					'slug'         => $identity['canonical_slug'],
-					'title'        => $title,
-					'excerpt'      => $this->frontmatter_string($frontmatter, array( 'excerpt', 'description' ), ''),
-					'date'         => $this->frontmatter_string($frontmatter, array( 'date', 'published', 'published_at' ), ''),
-					'template'     => $this->frontmatter_string($frontmatter, array( 'template', 'layout' ), ''),
-					'taxonomies'   => $this->frontmatter_taxonomies($frontmatter),
-					'frontmatter'  => $frontmatter,
-					'entrypoint'   => $is_explicit_entrypoint,
-					'metadata'     => array(
-						'title'     => $title,
-						'slug'      => $identity['canonical_slug'],
-						'status'    => $status,
-						'post_type' => $post_type,
-					),
-					'block_markup' => $conversion['serialized_blocks'],
-					'blocks'       => $conversion['blocks'],
-					'bfb_report'   => $conversion['report'],
-					'asset_references' => $conversion['asset_references'],
-					'svg_icon_artifacts' => $conversion['svg_icon_artifacts'],
-					'navigation_candidates' => $conversion['navigation_candidates'],
-					'visual_repair_metadata' => $conversion['visual_repair_metadata'],
-					'selector_provenance' => $conversion['selector_provenance'],
-					'diagnostics'  => $document_diagnostics,
-					'provenance'   => $file['provenance'],
-				)
-			);
+			$documents[] = $this->canonical_document_to_bac_document($page, $route_root, $entry_path);
 		}
 
 		return array(
 			'documents'   => $documents,
-			'components'  => $components,
-			'diagnostics' => $this->dedupe_diagnostics($diagnostics),
+			'components'  => array(),
+			'diagnostics' => array(),
 		);
 	}
 
 	/**
-	 * Return files that belong to a block root directory.
+	 * Project a canonical Blocks Engine page/document into BAC's legacy document shape.
 	 *
-	 * @param  array<int,array<string,mixed>> $files Files.
-	 * @return array<int,array<string,mixed>> Files.
+	 * @param array<string,mixed> $document Canonical document or compiled-site page.
+	 * @return array<string,mixed> BAC-compatible document artifact.
 	 */
-	private function files_under_directory( array $files, string $directory ): array {
-		$matched = array();
-		$prefix  = '' === $directory ? '' : $directory . '/';
-		foreach ( $files as $file ) {
-			if ( '' === $prefix || str_starts_with($file['path'], $prefix) ) {
-				$matched[] = $file;
-			}
-		}
+	private function canonical_document_to_bac_document( array $document, string $route_root, string $entry_path ): array {
+		$source_path = (string) ( $document['source_path'] ?? '' );
+		$title       = (string) ( $document['title'] ?? $this->title_from_path($source_path) );
+		$slug        = (string) ( $document['slug'] ?? $this->slug_from_path($source_path) );
+		$is_entrypoint = '' !== $entry_path && $source_path === $entry_path;
+		$explicit_slug = ( ! $is_entrypoint && ! $this->is_index_source_path($source_path) ) ? $slug : '';
+		$route       = $this->page_identity_from_source($source_path, $route_root, $is_entrypoint, $explicit_slug, $title);
 
-		return $matched;
+		return array_merge(
+			$route,
+			array(
+				'source_path'       => $source_path,
+				'kind'              => (string) ( $document['kind'] ?? 'document' ),
+				'post_type'         => (string) ( $document['post_type'] ?? $document['metadata']['post_type'] ?? 'page' ),
+				'post_status'       => 'publish',
+				'status'            => 'publish',
+				'slug'              => (string) $route['canonical_slug'],
+				'title'             => $title,
+				'excerpt'           => (string) ( $document['excerpt'] ?? $document['metadata']['excerpt'] ?? '' ),
+				'date'              => (string) ( $document['date'] ?? $document['metadata']['date'] ?? '' ),
+				'template'          => (string) ( $document['template'] ?? $document['metadata']['template'] ?? '' ),
+				'taxonomies'        => isset($document['taxonomies']) && is_array($document['taxonomies']) ? $document['taxonomies'] : array(),
+				'frontmatter'       => isset($document['frontmatter']) && is_array($document['frontmatter']) ? $document['frontmatter'] : array(),
+				'entrypoint'        => $is_entrypoint,
+				'metadata'          => isset($document['metadata']) && is_array($document['metadata']) ? $document['metadata'] : array(),
+				'document_metadata' => isset($document['metadata']) && is_array($document['metadata']) ? $document['metadata'] : array(),
+				'block_markup'      => (string) ( $document['block_markup'] ?? '' ),
+				'blocks'            => array(),
+				'bfb_report'        => array( 'source' => 'blocks-engine' ),
+				'asset_references'  => isset($document['asset_references']) && is_array($document['asset_references']) ? $document['asset_references'] : array(),
+				'svg_icon_artifacts' => array(),
+				'navigation_candidates' => array(),
+				'visual_repair_metadata' => array(),
+				'selector_provenance' => array(),
+				'diagnostics'       => isset($document['diagnostics']) && is_array($document['diagnostics']) ? $document['diagnostics'] : array(),
+				'provenance'        => isset($document['provenance']) && is_array($document['provenance']) ? $document['provenance'] : array(),
+			)
+		);
 	}
 
 	/**
@@ -2233,125 +1688,10 @@ class Block_Artifact_Compiler {
 	 * @param  array<int,array<string,mixed>>              $block_types Generated block type artifacts.
 	 * @return array<int,array<string,mixed>> Plugin artifacts.
 	 */
-	private function build_plugin_artifacts( array $artifact, array $block_types ): array {
-		$plugin_roots = array();
-
-		foreach ( $artifact['files'] as $file ) {
-			$path = (string) $file['path'];
-			if ( ! str_ends_with(strtolower($path), '.php') ) {
-				continue;
-			}
-
-			$headers = $this->parse_plugin_headers((string) $file['content']);
-			if ( empty($headers) ) {
-				continue;
-			}
-
-			$directory = dirname($path);
-			$directory = '.' === $directory ? '' : $directory;
-			$slug      = '' === $directory ? bac_sanitize_key(basename($path, '.php')) : bac_sanitize_key(basename($directory));
-			if ( '' === $slug ) {
-				$slug = 'generated-plugin';
-			}
-
-			$plugin_roots[ $directory ] = array(
-				'slug'        => $slug,
-				'directory'   => $directory,
-				'plugin_file' => $path,
-				'headers'     => $headers,
-				'source_file' => $file,
-			);
-		}
-
-		$plugins = array();
-		foreach ( $plugin_roots as $directory => $root ) {
-			$plugin_files = $this->files_under_directory($artifact['files'], $directory);
-			$plugin_blocks = array_values(
-				array_filter(
-					$block_types,
-					static function ( array $block_type ) use ( $directory ): bool {
-						$block_directory = (string) ( $block_type['directory'] ?? '' );
-						return '' === $directory || $block_directory === $directory || str_starts_with($block_directory, $directory . '/');
-					}
-				)
-			);
-
-			$plugins[] = array(
-				'schema'      => 'chubes4/wordpress-plugin-artifact/v1',
-				'slug'        => $root['slug'],
-				'directory'   => $directory,
-				'plugin_file' => $root['plugin_file'],
-				'headers'     => $root['headers'],
-				'blocks'      => array_values(
-					array_map(
-						static function ( array $block_type ): array {
-							return array(
-								'name'            => (string) ( $block_type['name'] ?? '' ),
-								'directory'       => (string) ( $block_type['directory'] ?? '' ),
-								'block_json_path' => (string) ( $block_type['block_json_path'] ?? '' ),
-							);
-						},
-						$plugin_blocks
-					)
-				),
-				'provenance'  => array(
-					'source'      => (string) ( $root['source_file']['source'] ?? 'artifact' ),
-					'source_hash' => hash('sha256', $this->file_hash_payload($plugin_files)),
-					'files'       => array_values(array_map(static fn ( array $file ): string => $file['path'], $plugin_files)),
-				),
-				'files'       => array_values(
-					array_map(
-						static function ( array $file ): array {
-							return array(
-								'path'  => $file['path'],
-								'kind'  => $file['kind'],
-								'bytes' => $file['bytes'],
-							);
-						},
-						$plugin_files
-					)
-				),
-			);
-		}
-
-		usort(
-			$plugins,
-			static function ( array $left, array $right ): int {
-				return strcmp((string) $left['slug'], (string) $right['slug']);
-			}
-		);
-
-		return $plugins;
-	}
-
-	/**
-	 * Parse a minimal subset of WordPress plugin file headers.
-	 *
-	 * @return array<string,string> Header contract.
-	 */
-	private function parse_plugin_headers( string $content ): array {
-		$headers = array();
-		$fields  = array(
-			'name'             => 'Plugin Name',
-			'description'      => 'Description',
-			'version'          => 'Version',
-			'requires_at_least' => 'Requires at least',
-			'requires_php'     => 'Requires PHP',
-			'requires_plugins' => 'Requires Plugins',
-			'author'           => 'Author',
-			'text_domain'      => 'Text Domain',
-		);
-
-		foreach ( $fields as $target => $label ) {
-			if ( preg_match('/^[ \t*#\/]*' . preg_quote($label, '/') . ':[ \t]*(.+)$/mi', $content, $matches) ) {
-				$value = trim(strip_tags((string) $matches[1]));
-				if ( '' !== $value ) {
-					$headers[ $target ] = $value;
-				}
-			}
-		}
-
-		return isset($headers['name']) ? $headers : array();
+	private function build_plugin_artifacts( array $artifact, array $block_types, array $canonical ): array {
+		unset($artifact, $block_types);
+		$plugins = $canonical['source_reports']['compiled_site']['plugins'] ?? array();
+		return is_array($plugins) ? array_values(array_filter($plugins, 'is_array')) : array();
 	}
 
 	/**
@@ -2362,79 +1702,10 @@ class Block_Artifact_Compiler {
 	 * @param  array<int,array<string,mixed>> $plugins      Generated plugin artifacts.
 	 * @return array<string,array<int,array<string,mixed>>> Requirement contract.
 	 */
-	private function build_artifact_requirements( string $block_markup, array $block_types, array $plugins ): array {
-		$provided_blocks = array();
-
-		foreach ( $block_types as $block_type ) {
-			$name = (string) ( $block_type['name'] ?? '' );
-			if ( '' !== $name ) {
-				$provided_blocks[ $name ] = (string) ( $block_type['directory'] ?? '' );
-			}
-		}
-
-		$custom_blocks = array();
-		foreach ( $this->detect_block_names($block_markup) as $name ) {
-			if ( str_starts_with($name, 'core/') ) {
-				continue;
-			}
-
-			$custom_blocks[ $name ] = array(
-				'name'       => $name,
-				'namespace'  => strtok($name, '/') ?: '',
-				'source'     => 'block_markup',
-				'status'     => isset($provided_blocks[ $name ]) ? 'provided' : 'external',
-				'directory'  => $provided_blocks[ $name ] ?? '',
-			);
-		}
-
-		foreach ( $provided_blocks as $name => $directory ) {
-			if ( isset($custom_blocks[ $name ]) ) {
-				continue;
-			}
-			$custom_blocks[ $name ] = array(
-				'name'       => $name,
-				'namespace'  => strtok($name, '/') ?: '',
-				'source'     => 'block_json',
-				'status'     => 'provided',
-				'directory'  => $directory,
-			);
-		}
-
-		ksort($custom_blocks);
-
-		return array(
-			'plugins'       => array_values(
-				array_map(
-					static function ( array $plugin ): array {
-						return array(
-							'slug'        => (string) ( $plugin['slug'] ?? '' ),
-							'plugin_file' => (string) ( $plugin['plugin_file'] ?? '' ),
-							'source'      => 'plugin_artifact',
-							'status'      => 'provided',
-						);
-					},
-					$plugins
-				)
-			),
-			'custom_blocks' => array_values($custom_blocks),
-		);
-	}
-
-	/**
-	 * Extract block names from serialized block comments.
-	 *
-	 * @return array<int,string> Block names.
-	 */
-	private function detect_block_names( string $block_markup ): array {
-		if ( '' === trim($block_markup) || ! preg_match_all('/<!--\s+wp:([a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*)\b/i', $block_markup, $matches) ) {
-			return array();
-		}
-
-		$names = array_map('strtolower', $matches[1]);
-		$names = array_values(array_unique($names));
-		sort($names);
-
-		return $names;
+	private function build_artifact_requirements( string $block_markup, array $block_types, array $plugins, array $canonical ): array {
+		unset($block_markup, $block_types, $plugins);
+		$requirements = $canonical['source_reports']['compiled_site']['requirements'] ?? array();
+		return is_array($requirements) ? $requirements : array();
 	}
 
 	/**

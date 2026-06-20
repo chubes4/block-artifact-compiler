@@ -168,9 +168,7 @@ $assert( ! str_contains( $sibling_markup, '<h1>Button Wrapper Style<p>' ), 'html
 
 $markdown_fragment = bac_compile_fragment( '# Feature\n\nMarkdown fragment.', 'content/feature.md', 'markdown', $fallback_options );
 $assert( 'content/feature.md' === ( $markdown_fragment['input']['entry_path'] ?? '' ), 'markdown fragment keeps a virtual markdown source path' );
-if ( ! $bfb_available ) {
-	$assert( 'markdown' === ( $markdown_fragment['bfb_report']['source'] ?? '' ), 'markdown fragment routes through BAC fallback conversion envelope' );
-}
+$assert( ! empty( $markdown_fragment['wordpress_artifacts']['documents'] ?? array() ), 'markdown fragment exposes canonical compiler document projection' );
 $assert( str_contains( (string) ( $markdown_fragment['wordpress_artifacts']['block_markup'] ?? '' ), 'Markdown fragment.' ), 'markdown fragment exposes top-level block markup' );
 
 $blocks_fragment = bac_compile_fragment( '<!-- wp:paragraph --><p>Native blocks</p><!-- /wp:paragraph -->', 'content/native.blocks', 'blocks' );
@@ -249,13 +247,8 @@ $assert( true === ( $full_document_metadata['scripts'][0]['defer'] ?? null ), 'h
 $assert( '/assets/body.js' === ( $full_document_metadata['scripts'][1]['src'] ?? '' ), 'body script is routed to metadata contract' );
 $assert( 'body' === ( $full_document_metadata['scripts'][1]['placement'] ?? '' ), 'body script records placement' );
 $assert( true === ( $full_document_metadata['scripts'][1]['async'] ?? null ), 'body script preserves boolean async attribute' );
-$assert( 1 === count( $full_document_template_parts ), 'full document header compiles into a template part artifact' );
-$assert( 'header' === ( $full_document_template_parts[0]['slug'] ?? '' ), 'full document template part preserves header slug' );
-$assert( 1 === count( $full_document_template_parts[0]['source_paths'] ?? array() ), 'full document template part preserves source path' );
-$assert( 1 === count( $full_document['wordpress_artifacts']['site']['template_parts'] ?? array() ), 'compiled site links full document template part artifact' );
-$assert( ! empty( array_filter( $full_document_regions, static fn ( array $region ): bool => 'header' === ( $region['role'] ?? '' ) ) ), 'full document exposes semantic header region evidence' );
-$assert( ! empty( array_filter( $full_document_regions, static fn ( array $region ): bool => 'main' === ( $region['role'] ?? '' ) ) ), 'full document exposes semantic main region evidence' );
-$assert( count( $full_document_regions ) === count( $full_document['wordpress_artifacts']['site']['regions'] ?? array() ), 'compiled site links semantic region artifacts' );
+$assert( array() === $full_document_template_parts, 'full document does not synthesize non-canonical template parts' );
+$assert( array() === $full_document_regions, 'full document does not synthesize non-canonical semantic regions' );
 
 $multi_page = bac_compile_website_artifact(
 	array(
@@ -285,12 +278,11 @@ $assert( true === ( $multi_documents[0]['entrypoint'] ?? null ), 'entry HTML doc
 $assert( true === ( $multi_documents[0]['front_page'] ?? null ), 'root index document exposes front-page identity' );
 $assert( '/' === ( $multi_documents[0]['route_key'] ?? '' ), 'root index document exposes canonical root route key' );
 $assert( '/' === ( $multi_documents[0]['link_rewrite_target'] ?? '' ), 'root index document exposes root link rewrite target' );
-$assert( 'Home Page' === ( $multi_documents[0]['title'] ?? '' ), 'entry HTML document title comes from metadata' );
+$assert( 'Home' === ( $multi_documents[0]['title'] ?? '' ), 'entry HTML document title comes from canonical compiler page title' );
 $assert( 'menu' === ( $multi_documents[1]['slug'] ?? '' ), 'nested HTML page slug comes from filename' );
 $assert( 'menu' === ( $multi_documents[1]['route_key'] ?? '' ), 'non-index HTML page exposes extensionless route key' );
 $assert( '/menu/' === ( $multi_documents[1]['link_rewrite_target'] ?? '' ), 'non-index HTML page exposes canonical link rewrite target' );
-$assert( 'Menu Page' === ( $multi_documents[1]['title'] ?? '' ), 'nested HTML document title comes from metadata' );
-$assert( 'Seasonal menu' === ( $multi_documents[1]['document_metadata']['meta'][0]['content'] ?? '' ), 'nested HTML document metadata is preserved' );
+$assert( 'Menu' === ( $multi_documents[1]['title'] ?? '' ), 'nested HTML document title comes from canonical compiler page title' );
 $assert( 'about' === ( $multi_documents[2]['slug'] ?? '' ), 'nested index document exposes directory slug instead of index' );
 $assert( 'about' === ( $multi_documents[2]['route_key'] ?? '' ), 'nested index document exposes directory route key' );
 $assert( '/about/' === ( $multi_documents[2]['link_rewrite_target'] ?? '' ), 'nested index document exposes directory link rewrite target' );
@@ -322,21 +314,11 @@ $shared_chrome = bac_compile_website_artifact(
 	$shared_chrome_artifact,
 	$fallback_options
 );
-$shared_regions = $shared_chrome['wordpress_artifacts']['site']['shared_regions'] ?? array();
 $semantic_regions = $shared_chrome['wordpress_artifacts']['regions'] ?? array();
-$site_regions = $shared_chrome['wordpress_artifacts']['site']['regions'] ?? array();
-$assert( count( $semantic_regions ) === count( $site_regions ), 'compiled site links all semantic region artifacts' );
-$assert( ! empty( array_filter( $shared_regions, static fn ( array $region ): bool => 'header' === ( $region['role'] ?? '' ) && 2 === count( $region['source_paths'] ?? array() ) ) ), 'compiled site artifact exposes shared header chrome candidates' );
-$assert( ! empty( array_filter( $shared_regions, static fn ( array $region ): bool => 'footer' === ( $region['role'] ?? '' ) && 2 === count( $region['source_paths'] ?? array() ) ) ), 'compiled site artifact exposes shared footer chrome candidates' );
+$assert( array() === $semantic_regions, 'BAC does not synthesize semantic regions outside canonical compiler output' );
 $shared_template_parts = $shared_chrome['wordpress_artifacts']['template_parts'] ?? array();
-$assert( 2 === count( $shared_template_parts ), 'shared header/footer regions compile into template part artifacts' );
-$assert( 'block-artifact-compiler/template-part/v1' === ( $shared_template_parts[0]['schema'] ?? '' ), 'template part artifact exposes schema' );
-$assert( 2 === count( $shared_template_parts[0]['source_paths'] ?? array() ), 'template part artifact preserves shared source paths' );
-$assert( '' !== trim( (string) ( $shared_template_parts[0]['block_markup'] ?? '' ) ), 'template part artifact exposes block markup' );
-if ( ! $bfb_available ) {
-	$assert( str_contains( (string) ( $shared_template_parts[0]['block_markup'] ?? '' ), '<!-- wp:html -->' ), 'template part artifact exposes fallback block markup when H2BC is unavailable' );
-}
-$assert( 2 === count( $shared_chrome['wordpress_artifacts']['site']['template_parts'] ?? array() ), 'compiled site artifact links template part artifacts' );
+$assert( array() === $shared_template_parts, 'BAC does not synthesize shared chrome template parts outside canonical compiler output' );
+$assert( array() === ( $shared_chrome['wordpress_artifacts']['site']['template_parts'] ?? array() ), 'compiled site exposes only canonical template part artifacts' );
 $assert( 1 === count( $shared_chrome['wordpress_artifacts']['site']['theme_assets']['styles'] ?? array() ), 'compiled site artifact exposes theme style assets' );
 $assert( 1 === count( $shared_chrome['wordpress_artifacts']['site']['theme_assets']['scripts'] ?? array() ), 'compiled site artifact exposes theme script assets' );
 $shared_chrome_canonical = ( new $canonical_compiler_class() )->compile( $shared_chrome_artifact )->toArray();
@@ -346,6 +328,26 @@ $assert( ( $shared_chrome_canonical_site['source_hash'] ?? '' ) === ( $shared_ch
 $assert( ( $shared_chrome_canonical_site['totals']['pages'] ?? null ) === ( $shared_chrome['wordpress_artifacts']['site']['blocks_engine']['totals']['pages'] ?? null ), 'compiled site report preserves canonical Blocks Engine page total' );
 $assert( ( $shared_chrome_canonical_site['theme']['stylesheets'][0] ?? '' ) === ( $shared_chrome['wordpress_artifacts']['site']['theme_assets']['styles'][0]['path'] ?? '' ), 'BAC theme style assets are sourced from canonical Blocks Engine report' );
 $assert( ( $shared_chrome_canonical_site['theme']['scripts'][0] ?? '' ) === ( $shared_chrome['wordpress_artifacts']['site']['theme_assets']['scripts'][0]['path'] ?? '' ), 'BAC theme script assets are sourced from canonical Blocks Engine report' );
+
+$canonical_visual_repair = bac_compile_website_artifact(
+	array(
+		'files' => array(
+			'index.html'               => '<main><h1>Visual repair</h1></main>',
+			'assets/visual-repair.css' => '.wp-site-blocks{min-height:100vh}',
+		),
+	),
+	$fallback_options
+);
+$canonical_visual_repair_report = ( new $canonical_compiler_class() )->compile(
+	array(
+		'files' => array(
+			'index.html'               => '<main><h1>Visual repair</h1></main>',
+			'assets/visual-repair.css' => '.wp-site-blocks{min-height:100vh}',
+		),
+	)
+)->toArray()['source_reports']['compiled_site']['visual_repair'] ?? array();
+$assert( ( $canonical_visual_repair_report['stylesheets'][0]['path'] ?? '' ) === ( $canonical_visual_repair['wordpress_artifacts']['visual_repair_metadata']['stylesheets'][0]['path'] ?? '' ), 'BAC visual repair metadata is sourced from canonical Blocks Engine report' );
+$assert( ( $canonical_visual_repair_report['css'] ?? '' ) === ( $canonical_visual_repair['wordpress_artifacts']['visual_repair']['styles'][0]['content'] ?? '' ), 'BAC visual repair CSS is sourced from canonical Blocks Engine report' );
 
 if ( ! function_exists( 'html_to_blocks_convert_fragment' ) ) {
 	function html_to_blocks_convert_fragment( string $html, array $args = array() ): array {
@@ -436,25 +438,15 @@ $assert( 1 === ( $h2bc_result['bfb_report']['h2bc_result']['selector_provenance_
 $assert( ! empty( $h2bc_result['wordpress_artifacts']['asset_references'] ?? array() ), 'BAC exposes merged H2BC asset references' );
 $assert( ! empty( $h2bc_result['wordpress_artifacts']['navigation_candidates'] ?? array() ), 'BAC exposes merged H2BC navigation candidates' );
 $assert( 'nav[aria-label="Primary"]' === ( $h2bc_result['wordpress_artifacts']['selector_provenance'][0]['source']['selector'] ?? '' ), 'BAC exposes entry H2BC selector provenance' );
-$assert( ! empty( $h2bc_result['wordpress_artifacts']['documents'][0]['asset_references'] ?? array() ), 'document artifacts preserve H2BC asset references' );
-$assert( 'nav[aria-label="Primary"]' === ( $h2bc_result['wordpress_artifacts']['documents'][0]['selector_provenance'][0]['source']['selector'] ?? '' ), 'document artifacts preserve H2BC selector provenance' );
-$assert( ! empty( $h2bc_result['wordpress_artifacts']['template_parts'][0]['navigation_candidates'] ?? array() ), 'template part artifacts preserve H2BC navigation candidates' );
+$assert( ! empty( $h2bc_result['wordpress_artifacts']['documents'] ?? array() ), 'document artifacts are projected from canonical compiler pages' );
+$assert( array() === ( $h2bc_result['wordpress_artifacts']['template_parts'] ?? array() ), 'template part artifacts are not synthesized from H2BC metadata' );
 $repair = $h2bc_result['wordpress_artifacts']['visual_repair'] ?? array();
 $repair_metadata = $h2bc_result['wordpress_artifacts']['visual_repair_metadata'] ?? array();
 $repair_styles = $repair['styles'] ?? array();
 $repair_css = implode( "\n", array_map( static fn ( array $style ): string => (string) ( $style['content'] ?? '' ), $repair_styles ) );
 $assert( 'block-artifact-compiler/visual-repair-artifacts/v1' === ( $repair['schema'] ?? '' ), 'BAC exposes visual repair artifact schema' );
-$assert( ! empty( $repair_metadata['categories']['groups'] ?? array() ), 'BAC preserves group repair metadata' );
-$assert( ! empty( $repair_metadata['categories']['images'] ?? array() ), 'BAC preserves image repair metadata' );
-$assert( ! empty( $repair_metadata['categories']['forms'] ?? array() ), 'BAC preserves form repair metadata' );
-$assert( ! empty( $repair_metadata['categories']['navigation'] ?? array() ), 'BAC preserves navigation repair metadata' );
-$assert( ! empty( $repair_metadata['categories']['buttons'] ?? array() ), 'BAC preserves button repair metadata' );
-$assert( ! empty( $repair_metadata['categories']['decorative'] ?? array() ), 'BAC preserves decorative repair metadata' );
-$assert( str_contains( $repair_css, '.wp-block-group.is-layout-flow' ), 'BAC emits group layout repair CSS', $repair_css );
-$assert( str_contains( $repair_css, '.wp-block-group.primary-nav' ), 'BAC emits navigation selector bridge CSS', $repair_css );
-$assert( str_contains( $repair_css, '.wp-block-button.btn .wp-block-button__link' ), 'BAC emits button wrapper bridge CSS', $repair_css );
-$assert( str_contains( $repair_css, '.editor-styles-wrapper .wp-block-group.glow-orb' ), 'BAC emits decorative editor repair CSS', $repair_css );
-$assert( 'nav[aria-label="Primary"]' === ( $h2bc_result['wordpress_artifacts']['template_parts'][0]['selector_provenance'][0]['source']['selector'] ?? '' ), 'template part artifacts preserve H2BC selector provenance' );
+$assert( 'blocks-engine/php-transformer/visual-repair/v1' === ( $repair_metadata['schema'] ?? '' ), 'BAC visual repair metadata identifies canonical compiler projection' );
+$assert( '' === trim( $repair_css ), 'BAC does not emit local visual repair bridge CSS' );
 
 $inline_icon_result = bac_compile_website_artifact(
 	array(
@@ -487,7 +479,7 @@ $symbol_sprite_result = bac_compile_website_artifact(
 $symbol_icons = $symbol_sprite_result['wordpress_artifacts']['svg_icon_artifacts'] ?? array();
 $assert( ! empty( $symbol_icons ), 'symbol sprite SVG artifact is exposed' );
 $assert( ! empty( array_filter( $symbol_icons, static fn ( array $artifact ): bool => str_contains( (string) ( $artifact['content'] ?? '' ), '<symbol id="shape"' ) && str_contains( (string) ( $artifact['content'] ?? '' ), '<use href="#shape"' ) ) ), 'local use reference survives in BAC artifact' );
-$assert( ! empty( array_filter( $symbol_icons, static fn ( array $artifact ): bool => 'template_part' === ( $artifact['scope'] ?? '' ) && 'header' === ( $artifact['source_path'] ?? '' ) ) ), 'template part SVG artifact gets source scope' );
+$assert( ! empty( array_filter( $symbol_icons, static fn ( array $artifact ): bool => 'entry' === ( $artifact['scope'] ?? '' ) ) ), 'symbol sprite SVG artifact gets entry scope without synthesized template parts' );
 
 $summary = bac_summarize_result( $messy );
 $assert( ( $summary['component_count'] ?? 0 ) > 0, 'summary exposes component count' );
@@ -619,35 +611,13 @@ $plugin_bundle = bac_compile_website_artifact(
 	$fallback_options
 );
 $plugins = $plugin_bundle['wordpress_artifacts']['plugins'] ?? array();
-$assert( 1 === count( $plugins ), 'plugin header files are promoted into plugin artifacts' );
-$plugin = $plugins[0] ?? array();
-$assert( 'chubes4/wordpress-plugin-artifact/v1' === ( $plugin['schema'] ?? '' ), 'plugin artifact exposes contract schema' );
-$assert( 'acme-blocks' === ( $plugin['slug'] ?? '' ), 'plugin artifact exposes inferred slug' );
-$assert( 'Acme Blocks' === ( $plugin['headers']['name'] ?? '' ), 'plugin artifact preserves Plugin Name header' );
-$assert( '8.1' === ( $plugin['headers']['requires_php'] ?? '' ), 'plugin artifact preserves Requires PHP header' );
-$assert( 'plugins/acme-blocks/acme-blocks.php' === ( $plugin['plugin_file'] ?? '' ), 'plugin artifact exposes primary plugin file' );
-$assert( 'acme/hero' === ( $plugin['blocks'][0]['name'] ?? '' ), 'plugin artifact links generated block types in the plugin directory' );
+$assert( array() === $plugins, 'BAC does not locally promote plugin header files outside canonical compiler output' );
 
 $requirements = $plugin_bundle['wordpress_artifacts']['requirements'] ?? array();
-$assert( 1 === count( $requirements['plugins'] ?? array() ), 'requirements expose provided plugin artifacts' );
-$assert( 'provided' === ( $requirements['plugins'][0]['status'] ?? '' ), 'plugin requirements mark generated plugin artifacts as provided' );
-$provided_block = null;
-$external_block = null;
-foreach ( $requirements['custom_blocks'] ?? array() as $requirement ) {
-	if ( 'acme/hero' === ( $requirement['name'] ?? '' ) ) {
-		$provided_block = $requirement;
-	}
-	if ( 'vendor/card' === ( $requirement['name'] ?? '' ) ) {
-		$external_block = $requirement;
-	}
-}
-$assert( is_array( $provided_block ), 'requirements include custom block usage satisfied by generated block.json' );
-$assert( 'provided' === ( $provided_block['status'] ?? '' ), 'provided custom block requirement is marked provided' );
-$assert( is_array( $external_block ), 'requirements include external custom block usage' );
-$assert( 'external' === ( $external_block['status'] ?? '' ), 'external custom block requirement stays external for downstream resolution' );
+$assert( array() === $requirements, 'BAC does not locally infer artifact requirements outside canonical compiler output' );
 
 $summary = bac_summarize_result( $plugin_bundle );
-$assert( 1 === ( $summary['plugin_artifact_count'] ?? 0 ), 'summary exposes plugin artifact count' );
-$assert( 2 === ( $summary['custom_block_requirement_count'] ?? 0 ), 'summary exposes custom block requirement count' );
+$assert( 0 === ( $summary['plugin_artifact_count'] ?? 0 ), 'summary exposes canonical plugin artifact count' );
+$assert( 0 === ( $summary['custom_block_requirement_count'] ?? 0 ), 'summary exposes canonical custom block requirement count' );
 
 file_put_contents( 'php://output', "contract smoke passed\n" );
