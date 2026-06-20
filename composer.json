@@ -10,11 +10,28 @@
   },
   "repositories": [
     {
-      "type": "path",
-      "url": "../blocks-engine/php-transformer",
-      "options": {
-        "versions": {
-          "automattic/blocks-engine-php-transformer": "dev-trunk"
+      "type": "package",
+      "package": {
+        "name": "automattic/blocks-engine-php-transformer",
+        "version": "dev-trunk",
+        "type": "library",
+        "source": {
+          "type": "git",
+          "url": "https://github.com/Automattic/blocks-engine.git",
+          "reference": "f8259ed02cf9f815e945dced6c8e5458cda96212"
+        },
+        "autoload": {
+          "psr-4": {
+            "Automattic\\BlocksEngine\\PhpTransformer\\": "php-transformer/src/"
+          },
+          "files": [
+            "php-transformer/php-transformer.php"
+          ]
+        },
+        "require": {
+          "php": ">=8.1",
+          "league/commonmark": "^2.5",
+          "league/html-to-markdown": "^5.1"
         }
       }
     }
