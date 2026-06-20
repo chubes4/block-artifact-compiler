@@ -10,10 +10,33 @@
   },
   "repositories": [
     {
-      "type": "path",
-      "url": "../blocks-engine/php-transformer",
-      "options": {
-        "symlink": false
+      "type": "package",
+      "package": {
+        "name": "automattic/blocks-engine-php-transformer",
+        "version": "dev-trunk",
+        "type": "library",
+        "license": "GPL-3.0-or-later",
+        "description": "PHP primitives for transforming HTML, Markdown, and website artifacts into WordPress block outputs.",
+        "homepage": "https://github.com/Automattic/blocks-engine/tree/trunk/php-transformer",
+        "support": {
+          "issues": "https://github.com/Automattic/blocks-engine/issues",
+          "source": "https://github.com/Automattic/blocks-engine/tree/trunk/php-transformer"
+        },
+        "dist": {
+          "type": "zip",
+          "url": "https://api.github.com/repos/Automattic/blocks-engine/zipball/4837fab959b01f16b7f183e80558967648fca4f2",
+          "reference": "4837fab959b01f16b7f183e80558967648fca4f2"
+        },
+        "autoload": {
+          "psr-4": {
+            "Automattic\\BlocksEngine\\PhpTransformer\\": "php-transformer/src/"
+          }
+        },
+        "require": {
+          "league/commonmark": "^2.5",
+          "league/html-to-markdown": "^5.1",
+          "php": ">=8.1"
+        }
       }
     }
   ],
