@@ -299,8 +299,8 @@ Block Artifact Compiler does not orchestrate agents, import WordPress sites, or 
 
 - Studio Web owns product orchestration, review, preview, and push flows.
 - Static Site Importer owns WordPress import and materialization.
-- Block Format Bridge owns format-to-block conversion APIs.
-- HTML to Blocks Converter owns low-level HTML-to-known-block transforms.
+- Blocks Engine PHP transformer owns generic artifact compilation and low-level HTML-to-known-block transforms.
+- Block Format Bridge owns compatibility format-to-block conversion APIs for older consumers.
 
 ## Smoke Test
 
