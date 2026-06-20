@@ -67,7 +67,8 @@ class Block_Artifact_Compiler {
 		if ( '' === trim($entry_path) && ! empty($documents['documents'][0]['source_path']) ) {
 			$entry_path = (string) $documents['documents'][0]['source_path'];
 		}
-		$source_report = $this->source_report($normalized, $entry_path, $html);
+		$canonical_source_report = $this->canonical_artifact_source_report($canonical);
+		$source_report           = $this->source_report($normalized, $entry_path, $html, $canonical_source_report);
 
 		$diagnostics = $this->dedupe_diagnostics(array_merge($diagnostics, $conversion['diagnostics']));
 		$components  = isset($canonical['components']) && is_array($canonical['components']) ? $canonical['components'] : array();
@@ -90,27 +91,27 @@ class Block_Artifact_Compiler {
 			'status'              => $this->status_from_diagnostics($diagnostics),
 			'input'               => array(
 				'schema'          => self::INPUT_SCHEMA,
-				'entry_path'      => $entry_path,
-				'entrypoints'     => $normalized['entrypoints'],
-				'file_count'      => count($normalized['files']),
-				'accepted_count'  => count($normalized['files']),
-				'rejected_count'  => $normalized['rejected_count'],
-				'bytes'           => $normalized['bytes'],
-				'files_by_kind'   => $this->count_files_by_kind($normalized['files']),
-				'files_by_role'   => $this->count_files_by_field($normalized['files'], 'role'),
-				'files_by_mime'   => $this->count_files_by_field($normalized['files'], 'mime_type'),
+				'entry_path'      => '' !== (string) ( $canonical_source_report['entry_path'] ?? '' ) ? (string) $canonical_source_report['entry_path'] : $entry_path,
+				'entrypoints'     => isset($canonical_source_report['entrypoints']) && is_array($canonical_source_report['entrypoints']) ? $canonical_source_report['entrypoints'] : $normalized['entrypoints'],
+				'file_count'      => (int) ( $canonical_source_report['file_count'] ?? count($normalized['files']) ),
+				'accepted_count'  => (int) ( $canonical_source_report['accepted_count'] ?? count($normalized['files']) ),
+				'rejected_count'  => (int) ( $canonical_source_report['rejected_count'] ?? $normalized['rejected_count'] ),
+				'bytes'           => (int) ( $canonical_source_report['bytes'] ?? $normalized['bytes'] ),
+				'files_by_kind'   => isset($canonical_source_report['files_by_kind']) && is_array($canonical_source_report['files_by_kind']) ? $canonical_source_report['files_by_kind'] : $this->count_files_by_kind($normalized['files']),
+				'files_by_role'   => isset($canonical_source_report['files_by_role']) && is_array($canonical_source_report['files_by_role']) ? $canonical_source_report['files_by_role'] : $this->count_files_by_field($normalized['files'], 'role'),
+				'files_by_mime'   => isset($canonical_source_report['files_by_mime']) && is_array($canonical_source_report['files_by_mime']) ? $canonical_source_report['files_by_mime'] : $this->count_files_by_field($normalized['files'], 'mime_type'),
 				'original_schema' => (string) ( $artifact['schema'] ?? '' ),
 				'source_report'   => $source_report,
 			),
 			'wordpress_artifacts' => array(
 				'block_markup' => $conversion['serialized_blocks'],
 				'blocks'       => $conversion['blocks'],
-				'block_tree'   => $this->block_tree_report($conversion['blocks'], $conversion['serialized_blocks']),
+				'block_tree'   => $this->compiled_block_tree_report($canonical, $conversion['blocks'], $conversion['serialized_blocks']),
 				'document_metadata' => $entry_document['metadata'],
 				'site'         => $this->compiled_site_artifact($normalized, $documents['documents'], $template_parts, $regions, $canonical),
 				'regions'      => $regions,
 				'template_parts' => $template_parts,
-				'asset_references' => $this->compiled_asset_references($conversion, $documents['documents'], $template_parts),
+				'asset_references' => $this->compiled_asset_references($canonical, $conversion, $documents['documents'], $template_parts),
 				'svg_icon_artifacts' => $this->compiled_svg_icon_artifacts($conversion, $documents['documents'], $template_parts),
 				'navigation_candidates' => $this->compiled_navigation_candidates($conversion, $documents['documents'], $template_parts),
 				'visual_repair' => $visual_repair,
@@ -891,12 +892,43 @@ class Block_Artifact_Compiler {
 	 * @param  array{files:array<int,array<string,mixed>>} $artifact Normalized artifact.
 	 * @return array<string,mixed>
 	 */
-	private function source_report( array $artifact, string $entry_path, string $html ): array {
-		return array(
+	private function source_report( array $artifact, string $entry_path, string $html, array $canonical_source_report = array() ): array {
+		$report = array(
 			'entry_path' => $entry_path,
 			'html'       => $this->html_structure_report($html),
 			'css'        => $this->css_structure_report($artifact['files']),
 		);
+
+		if ( empty($canonical_source_report) ) {
+			return $report;
+		}
+
+		foreach ( array( 'source_hash', 'internal_links', 'asset_references', 'image_references', 'files_by_source', 'files_by_intent', 'limits' ) as $key ) {
+			if ( array_key_exists($key, $canonical_source_report) ) {
+				$report[ $key ] = $canonical_source_report[ $key ];
+			}
+		}
+
+		$report['blocks_engine'] = array_filter(
+			array(
+				'schema'      => isset($canonical_source_report['schema']) ? (string) $canonical_source_report['schema'] : '',
+				'source_hash' => isset($canonical_source_report['source_hash']) ? (string) $canonical_source_report['source_hash'] : '',
+			),
+			static fn ( mixed $value ): bool => '' !== $value
+		);
+
+		return $report;
+	}
+
+	/**
+	 * Extract the current Blocks Engine artifact source report.
+	 *
+	 * @param array<string,mixed> $canonical Canonical Blocks Engine result.
+	 * @return array<string,mixed> Artifact source report.
+	 */
+	private function canonical_artifact_source_report( array $canonical ): array {
+		$report = $canonical['source_reports']['artifact'] ?? array();
+		return is_array($report) ? $report : array();
 	}
 
 	/**
@@ -1276,12 +1308,39 @@ class Block_Artifact_Compiler {
 	 * @param array<int,array<string,mixed>> $template_parts   Template part artifacts.
 	 * @return array<int,array<string,mixed>> Asset references.
 	 */
-	private function compiled_asset_references( array $entry_conversion, array $documents, array $template_parts ): array {
+	private function compiled_asset_references( array $canonical, array $entry_conversion, array $documents, array $template_parts ): array {
 		return $this->dedupe_reference_rows(array_merge(
+			$this->canonical_asset_reference_rows($canonical),
 			$this->reference_rows_from_conversion($entry_conversion, 'entry'),
 			$this->reference_rows_from_artifacts($documents, 'document', 'asset_references'),
 			$this->reference_rows_from_artifacts($template_parts, 'template_part', 'asset_references')
 		));
+	}
+
+	/**
+	 * Convert canonical ArtifactCompiler asset reference reports to BAC reference rows.
+	 *
+	 * @param array<string,mixed> $canonical Canonical Blocks Engine result.
+	 * @return array<int,array<string,mixed>> Asset reference rows.
+	 */
+	private function canonical_asset_reference_rows( array $canonical ): array {
+		$source_report = $this->canonical_artifact_source_report($canonical);
+		$rows          = array();
+
+		foreach ( array( 'asset_references', 'image_references' ) as $field ) {
+			$references = isset($source_report[ $field ]) && is_array($source_report[ $field ]) ? $source_report[ $field ] : array();
+			foreach ( $references as $reference ) {
+				if ( ! is_array($reference) ) {
+					continue;
+				}
+
+				$reference['scope'] = 'artifact';
+				$reference['report'] = 'source_reports.artifact.' . $field;
+				$rows[] = $reference;
+			}
+		}
+
+		return $rows;
 	}
 
 	/**
@@ -1989,6 +2048,23 @@ class Block_Artifact_Compiler {
 		$report['top_classes']        = array_slice($classes, 0, 40, true);
 
 		return $report;
+	}
+
+	/**
+	 * Prefer canonical block tree reports when ArtifactCompiler publishes them.
+	 *
+	 * @param array<string,mixed>            $canonical         Canonical Blocks Engine result.
+	 * @param array<int,array<string,mixed>> $blocks            Parsed blocks.
+	 * @param string                         $serialized_blocks Serialized block markup.
+	 * @return array<string,mixed> Block tree report.
+	 */
+	private function compiled_block_tree_report( array $canonical, array $blocks, string $serialized_blocks ): array {
+		$report = $canonical['source_reports']['block_tree'] ?? array();
+		if ( is_array($report) && ! empty($report) ) {
+			return $report;
+		}
+
+		return $this->block_tree_report($blocks, $serialized_blocks);
 	}
 
 	/**
