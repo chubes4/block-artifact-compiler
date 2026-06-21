@@ -103,6 +103,7 @@ $assert( 'content/fragment.html' === ( $fragment['provenance'][0]['source'] ?? '
 $assert( 'artifact-fragment' === ( $fragment['provenance'][0]['scope'] ?? '' ), 'fragment source scope is set by canonical compiler' );
 $assert( str_contains( (string) ( $fragment['serialized_blocks'] ?? '' ), '<!-- wp:group' ), 'fragment compilation uses Blocks Engine compileFragment' );
 $assert( str_contains( (string) ( $fragment['serialized_blocks'] ?? '' ), '<h2>Fragment</h2>' ), 'fragment compilation preserves canonical serialized content' );
+$assert( $fragment === $compat_compiler->compile_fragment( '<main><h2>Fragment</h2><p>Copy</p></main>', 'content/fragment.html', 'html' ), 'BAC class fragment method delegates to the public fragment function' );
 
 $summary = bac_summarize_result( $result );
 $assert( 'blocks-engine/php-transformer/result/v1' === ( $summary['schema'] ?? '' ), 'summary preserves canonical schema' );

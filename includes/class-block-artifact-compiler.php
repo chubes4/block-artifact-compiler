@@ -5,10 +5,8 @@
  * @package BlockArtifactCompiler
  */
 
-use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-
 /**
- * Thin compatibility wrapper around the Blocks Engine artifact compiler.
+ * Legacy method adapter for the public BAC compatibility functions.
  */
 class Block_Artifact_Compiler {
 
@@ -20,9 +18,7 @@ class Block_Artifact_Compiler {
 	 * @return array<string,mixed> Canonical Blocks Engine compiler result envelope.
 	 */
 	public function compile( array $artifact, array $options = array() ): array {
-		unset( $options );
-
-		return ( new ArtifactCompiler() )->compile( $artifact )->toArray();
+		return bac_compile_website_artifact( $artifact, $options );
 	}
 
 	/**
@@ -35,7 +31,7 @@ class Block_Artifact_Compiler {
 	 * @return array<string,mixed> Canonical Blocks Engine compiler result envelope.
 	 */
 	public function compile_fragment( string $content, string $source = 'fragment', string $format = 'html', array $options = array() ): array {
-		return ( new ArtifactCompiler() )->compileFragment( $content, $source, $format, $options )->toArray();
+		return bac_compile_fragment( $content, $source, $format, $options );
 	}
 
 	/**
