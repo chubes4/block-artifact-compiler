@@ -5,8 +5,6 @@
  * @package BlockArtifactCompiler
  */
 
-use Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler;
-
 if ( ! function_exists( 'bac_compile_website_artifact' ) ) {
 	/**
 	 * Compile a website artifact bundle into a WordPress-native artifact bundle.
@@ -16,9 +14,8 @@ if ( ! function_exists( 'bac_compile_website_artifact' ) ) {
 	 * @return array<string,mixed> Canonical Blocks Engine compiler result envelope.
 	 */
 	function bac_compile_website_artifact( array $artifact, array $options = array() ): array {
-		unset( $options );
-
-		return ( new ArtifactCompiler() )->compile( $artifact )->toArray();
+		$compiler = new Block_Artifact_Compiler();
+		return $compiler->compile( $artifact, $options );
 	}
 }
 
@@ -33,7 +30,8 @@ if ( ! function_exists( 'bac_compile_fragment' ) ) {
 	 * @return array<string,mixed> Canonical Blocks Engine compiler result envelope.
 	 */
 	function bac_compile_fragment( string $content, string $source = 'fragment', string $format = 'html', array $options = array() ): array {
-		return ( new ArtifactCompiler() )->compileFragment( $content, $source, $format, $options )->toArray();
+		$compiler = new Block_Artifact_Compiler();
+		return $compiler->compile_fragment( $content, $source, $format, $options );
 	}
 }
 
