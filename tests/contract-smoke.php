@@ -109,6 +109,8 @@ $assert( 'blocks-engine/php-transformer/result/v1' === ( $summary['schema'] ?? '
 $assert( ( $result['metrics']['diagnostic_count'] ?? null ) === ( $summary['diagnostic_count'] ?? null ), 'summary projects canonical diagnostic metric' );
 $assert( ( $result['source_reports']['artifact']['file_count'] ?? null ) === ( $summary['file_count'] ?? null ), 'summary projects canonical artifact file count' );
 $assert( 1 === ( $summary['component_count'] ?? null ), 'summary counts canonical component candidates' );
+$assert( array_keys( $summary ) === array( 'schema', 'status', 'block_count', 'component_count', 'file_count', 'diagnostic_count' ), 'summary keeps the compact BAC compatibility key set' );
+$assert( $summary === $compat_compiler->summarize_result( $result ), 'BAC class summary method delegates to the public summary function' );
 
 $conversion_report_only = array(
 	'schema'         => 'blocks-engine/php-transformer/result/v1',
