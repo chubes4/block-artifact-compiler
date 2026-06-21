@@ -2,7 +2,7 @@
 
 Block Artifact Compiler is a legacy compatibility entrypoint for the canonical Blocks Engine PHP transformer.
 
-BAC does not own artifact compilation, report shaping, block conversion, source normalization, component discovery, or materialization semantics. Those behaviors live in Blocks Engine. BAC only loads the runtime and exposes the old package/plugin function names for consumers that still depend on them.
+BAC does not own artifact compilation, block conversion, source normalization, component discovery, or materialization semantics. Those behaviors live in Blocks Engine. BAC only loads the runtime and exposes the old package/plugin function names for consumers that still depend on them.
 
 ```text
 Studio Web
@@ -44,7 +44,7 @@ array(
 
 ## Boundaries
 
-Block Artifact Compiler does not orchestrate agents, import WordPress sites, deploy outputs, summarize reports, define artifact schemas, or maintain a second compiler contract.
+Block Artifact Compiler does not orchestrate agents, import WordPress sites, deploy outputs, define artifact schemas, or maintain a second compiler contract.
 
 - Studio Web owns product orchestration, review, preview, and push flows.
 - Static Site Importer owns WordPress import and materialization.
