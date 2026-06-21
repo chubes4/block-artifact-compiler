@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "c3c9317c327419f32403146ab128a8b0",
+    "content-hash": "cc62ddf06c0006fb6ad17afb9822d70a",
     "packages": [],
     "packages-dev": [
         {
@@ -13,7 +13,7 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/Automattic/blocks-engine.git",
-                "reference": "ecb99000c6f04288837adaffb20c33035c4f41a0"
+                "reference": "fc12a10f71bc5c132d452543ae9cc886369df4c3"
             },
             "require": {
                 "league/commonmark": "^2.5",
