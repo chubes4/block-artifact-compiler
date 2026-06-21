@@ -38,6 +38,9 @@ $assert( 'success_with_warnings' === ( $result['status'] ?? '' ), 'canonical war
 $assert( 'index.html' === ( $result['source_reports']['artifact']['entry_path'] ?? '' ), 'entry path is returned from canonical artifact report' );
 $assert( 'index.html' === ( $result['source_reports']['conversion_report']['source_summary']['entry_path'] ?? '' ), 'SSI-facing conversion report summary is preserved' );
 $assert( 4 === ( $result['source_reports']['artifact']['html']['element_count'] ?? null ), 'canonical source report is exposed directly' );
+$assert( 'blocks-engine/php-transformer/site-artifact/v1' === ( $result['source_reports']['artifact']['schema'] ?? '' ), 'canonical artifact report schema is preserved' );
+$assert( 'blocks-engine/php-transformer/materialization-plan/v1' === ( $result['source_reports']['materialization_plan']['schema'] ?? '' ), 'canonical materialization plan is exposed directly' );
+$assert( 'blocks-engine/php-transformer/conversion-report/v1' === ( $result['source_reports']['conversion_report']['schema'] ?? '' ), 'canonical conversion report projection is preserved' );
 $assert( str_contains( (string) ( $result['serialized_blocks'] ?? '' ), 'Hello compiler' ), 'canonical serialized block output is returned directly' );
 $assert( ! empty( array_filter( $result['diagnostics'] ?? array(), static fn ( array $diagnostic ): bool => 'unsafe_svg_asset' === ( $diagnostic['code'] ?? '' ) ) ), 'canonical diagnostics surface through BAC API' );
 $assert( ! empty( array_filter( $result['components'] ?? array(), static fn ( array $component ): bool => 'jsx-component-file' === ( $component['signal'] ?? '' ) && 'Card' === ( $component['name'] ?? '' ) ) ), 'canonical component candidates surface through BAC API' );
@@ -106,6 +109,24 @@ $assert( 'blocks-engine/php-transformer/result/v1' === ( $summary['schema'] ?? '
 $assert( ( $result['metrics']['diagnostic_count'] ?? null ) === ( $summary['diagnostic_count'] ?? null ), 'summary projects canonical diagnostic metric' );
 $assert( ( $result['source_reports']['artifact']['file_count'] ?? null ) === ( $summary['file_count'] ?? null ), 'summary projects canonical artifact file count' );
 $assert( 1 === ( $summary['component_count'] ?? null ), 'summary counts canonical component candidates' );
+
+$conversion_report_only = array(
+	'schema'         => 'blocks-engine/php-transformer/result/v1',
+	'status'         => 'success',
+	'source_reports' => array(
+		'conversion_report' => array(
+			'source_summary' => array(
+				'block_count'      => 99,
+				'file_count'       => 88,
+				'diagnostic_count' => 77,
+			),
+		),
+	),
+);
+$compat_summary = bac_summarize_result( $conversion_report_only );
+$assert( 0 === ( $compat_summary['block_count'] ?? null ), 'summary does not remap block count from conversion report source summary' );
+$assert( 0 === ( $compat_summary['file_count'] ?? null ), 'summary does not remap file count from conversion report source summary' );
+$assert( 0 === ( $compat_summary['diagnostic_count'] ?? null ), 'summary does not remap diagnostic count from conversion report source summary' );
 
 $canonical_fragment = ( new $canonical_compiler_class() )->compileFragment( '<main><h2>Fragment</h2><p>Copy</p></main>', 'content/fragment.html', 'html' )->toArray();
 $assert( $canonical_fragment === $fragment, 'BAC fragment API returns the canonical compileFragment result' );
