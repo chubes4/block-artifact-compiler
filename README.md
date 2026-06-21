@@ -33,14 +33,7 @@ $result = bac_compile_website_artifact(
 $fragment = bac_compile_fragment( $html, 'main:index.html', 'html', $options );
 ```
 
-Both functions return the canonical Blocks Engine result envelope directly. The expected schema is:
-
-```php
-array(
-	'schema' => 'blocks-engine/php-transformer/result/v1',
-	// Remaining keys are owned by Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler.
-)
-```
+Both functions return the canonical Blocks Engine result envelope directly. BAC does not document, project, or validate a separate result schema; callers should treat the envelope as owned by `Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler`.
 
 ## Boundaries
 
