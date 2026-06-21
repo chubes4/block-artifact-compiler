@@ -1,6 +1,6 @@
 # Block Artifact Compiler
 
-Block Artifact Compiler is a legacy compatibility entrypoint for the canonical Blocks Engine PHP transformer.
+Block Artifact Compiler is a legacy compatibility entrypoint for the canonical Blocks Engine PHP transformer. New consumers should depend on `automattic/blocks-engine-php-transformer` directly instead of adopting BAC.
 
 BAC does not own artifact compilation, block conversion, source normalization, component discovery, or materialization semantics. Those behaviors live in Blocks Engine. BAC only loads the runtime and exposes the old package/plugin function names for consumers that still depend on them.
 
@@ -12,6 +12,8 @@ Studio Web
 ```
 
 ## Public API
+
+This section documents the stable compatibility shim for existing BAC callers only. It is not a new integration guide; new compiler integrations should use `Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler` from `automattic/blocks-engine-php-transformer` directly.
 
 Load BAC through Composer autoloading, the WordPress plugin entrypoint, or `library.php`:
 
