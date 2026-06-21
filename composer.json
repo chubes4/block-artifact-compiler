@@ -1,6 +1,6 @@
 {
   "name": "chubes4/block-artifact-compiler",
-  "description": "Legacy BAC function facade over Blocks Engine PHP Transformer artifact compilation.",
+  "description": "Legacy BAC compatibility facade; new consumers should use automattic/blocks-engine-php-transformer directly.",
   "type": "wordpress-plugin",
   "license": "GPL-2.0-or-later",
   "autoload": {
