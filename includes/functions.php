@@ -36,25 +36,3 @@ if ( ! function_exists( 'bac_compile_fragment' ) ) {
 		return ( new ArtifactCompiler() )->compileFragment( $content, $source, $format, $options )->toArray();
 	}
 }
-
-if ( ! function_exists( 'bac_summarize_result' ) ) {
-	/**
-	 * Summarize a compiler result for reports and logs.
-	 *
-	 * @param array<string,mixed> $compiled Compiler result envelope.
-	 * @return array<string,mixed> Compact summary.
-	 */
-	function bac_summarize_result( array $compiled ): array {
-		$metrics  = is_array( $compiled['metrics'] ?? null ) ? $compiled['metrics'] : array();
-		$artifact = is_array( $compiled['source_reports']['artifact'] ?? null ) ? $compiled['source_reports']['artifact'] : array();
-
-		return array(
-			'schema'           => (string) ( $compiled['schema'] ?? '' ),
-			'status'           => (string) ( $compiled['status'] ?? '' ),
-			'block_count'      => (int) ( $metrics['block_count'] ?? 0 ),
-			'component_count'  => is_array( $compiled['components'] ?? null ) ? count( $compiled['components'] ) : 0,
-			'file_count'       => (int) ( $artifact['file_count'] ?? 0 ),
-			'diagnostic_count' => (int) ( $metrics['diagnostic_count'] ?? 0 ),
-		);
-	}
-}
