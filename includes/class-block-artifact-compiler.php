@@ -45,15 +45,17 @@ class Block_Artifact_Compiler {
 	 * @return array<string,mixed> Compact summary.
 	 */
 	public function summarize_result( array $compiled ): array {
-		$diagnostics = is_array( $compiled['diagnostics'] ?? null ) ? $compiled['diagnostics'] : array();
+		$metrics       = is_array( $compiled['metrics'] ?? null ) ? $compiled['metrics'] : array();
+		$artifact      = is_array( $compiled['source_reports']['artifact'] ?? null ) ? $compiled['source_reports']['artifact'] : array();
+		$source_summary = is_array( $compiled['source_reports']['conversion_report']['source_summary'] ?? null ) ? $compiled['source_reports']['conversion_report']['source_summary'] : array();
 
 		return array(
 			'schema'           => (string) ( $compiled['schema'] ?? '' ),
 			'status'           => (string) ( $compiled['status'] ?? '' ),
-			'block_count'      => is_array( $compiled['blocks'] ?? null ) ? count( $compiled['blocks'] ) : 0,
+			'block_count'      => (int) ( $metrics['block_count'] ?? ( $source_summary['block_count'] ?? 0 ) ),
 			'component_count'  => is_array( $compiled['components'] ?? null ) ? count( $compiled['components'] ) : 0,
-			'file_count'       => is_array( $compiled['assets'] ?? null ) ? count( $compiled['assets'] ) : 0,
-			'diagnostic_count' => count( $diagnostics ),
+			'file_count'       => (int) ( $artifact['file_count'] ?? ( $source_summary['file_count'] ?? 0 ) ),
+			'diagnostic_count' => (int) ( $metrics['diagnostic_count'] ?? ( $source_summary['diagnostic_count'] ?? 0 ) ),
 		);
 	}
 }
