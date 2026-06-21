@@ -38,8 +38,7 @@
   ],
   "scripts": {
     "test": [
-      "php tests/contract-smoke.php",
-      "php tests/direct-class-include.php"
+      "php tests/contract-smoke.php"
     ]
   },
   "require": {

@@ -10,5 +10,4 @@ if ( file_exists( $bac_autoload ) ) {
 	require_once $bac_autoload;
 }
 
-require_once __DIR__ . '/includes/class-block-artifact-compiler.php';
 require_once __DIR__ . '/includes/functions.php';

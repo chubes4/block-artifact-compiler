@@ -1,323 +1,57 @@
 # Block Artifact Compiler
 
-Block Artifact Compiler is a compatibility wrapper between generated website artifacts and WordPress materialization.
+Block Artifact Compiler is a legacy compatibility entrypoint for the canonical Blocks Engine PHP transformer.
 
-The implementation delegates compilation to the canonical Blocks Engine PHP transformer and preserves the public `bac_*` APIs for existing consumers.
+BAC does not own artifact compilation, report shaping, block conversion, source normalization, component discovery, or materialization semantics. Those behaviors live in Blocks Engine. BAC only loads the runtime and exposes the old package/plugin function names for consumers that still depend on them.
 
 ```text
 Studio Web
   -> Static Site Importer
-      -> Block Artifact Compiler
+      -> Block Artifact Compiler legacy entrypoint
           -> Blocks Engine PHP Transformer
 ```
 
-## Responsibility
-
-Input: a user-owned website artifact bundle.
-
-Canonical input schema: `block-artifact-compiler/website-artifact/v1`.
-
-Output: a WordPress-native artifact bundle.
-
-The canonical Blocks Engine transformer accepts messy AI-generated artifact shapes and normalizes them into a bounded, safe envelope before lower-level conversion runs. Through BAC's public wrapper APIs it accepts:
-
-- `files`, `artifacts`, or `outputs` arrays
-- path-to-content maps
-- `content_base64` payloads for binary and encoded text files
-- MIME metadata through `mime_type`, `mime`, `media_type`, or MIME-shaped `type`
-- file `role`, `intent`, and `entrypoint` metadata
-- bundle `entrypoint`, `entry`, `main`, or `entrypoints` metadata
-- `html`, `generated_html`, `content`, or `body` strings
-- shorthand `css`, `styles`, `js`, `javascript`, or `script` strings
-
-It rejects absolute paths, `..` escapes, empty paths, invalid base64 payloads, oversized files, and over-budget bundles. Rejections are reported as diagnostics so permissive generators can keep producing complete website bundles while BAC normalizes the safe subset for WordPress materializers.
-
-BAC treats Markdown and MDX as source documents, not generic assets:
-
-- `.md` and `.markdown` normalize as `kind: markdown` with `text/markdown`
-- `.mdx` normalizes as `kind: mdx` with BAC-local MIME type `text/mdx`
-- frontmatter maps to WordPress document metadata such as title, slug, post type, excerpt, date, template, and taxonomy hints
-- Markdown bodies are converted or preserved according to the canonical transformer behavior available in the active runtime
-- MDX bodies are reduced to Markdown-compatible text where feasible by the canonical transformer, while JSX imports/components stay inspectable as conservative candidates and diagnostics
-- MDX/JSX handling is candidate extraction only; BAC does not evaluate MDX runtime semantics or compile JSX components
-
-The compiler result returns:
-
-- serialized block markup
-- parsed blocks when WordPress parsing is available
-- component candidates from explicit `data-component` markers and repeated semantic class tokens
-- component candidates from MDX JSX references and generated JSX/TSX component files
-- post/page-like `documents` artifacts compiled from HTML, Markdown, and MDX source documents
-- a compiled `site` artifact with page route keys, shared chrome candidates, and theme-level style/script asset roles
-- generated custom block type artifacts discovered from `block.json` roots
-- generated plugin artifacts discovered from WordPress plugin headers
-- materializer-facing plugin and custom-block requirements showing which generated artifacts are provided and which custom blocks remain external
-- generated file manifest for non-entry artifact files, including MIME type, role, encoding, binary marker, `content_base64` for binary assets, and CSS/JS intent when present or inferred
-- generated file manifest provenance, including uncompiled source documents with stable source hashes
-- diagnostics
-- provenance
-- optional BFB conversion report
-
-Block type artifacts are normalized compiler output, not generation prompt constraints. Generation can produce loose files; the compiler identifies block roots, records diagnostics, and exposes a stable contract for downstream review and materialization.
-
-Plugin artifacts follow the same rule. BAC detects WordPress plugin headers, preserves safe header metadata and source file inventories, links generated `block.json` artifacts inside the plugin directory, and reports requirements without installing, activating, or resolving external plugins. Downstream materializers such as Static Site Importer can decide whether a `provided` plugin/custom-block artifact should be promoted or whether an `external` custom-block requirement needs a preinstalled dependency.
-
-## Blocks Engine Transformer Wrapper
-
-BAC is a thin compatibility layer over the canonical Blocks Engine PHP transformer. It delegates to `Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler` through Composer autoloading.
-
-The Composer configuration pins the Blocks Engine PHP transformer source used for development and tests; it does not depend on a Packagist release.
-
-The wrapper preserves BAC-owned API compatibility for `bac_compile_website_artifact()`, `bac_compile_fragment()`, and `bac_summarize_result()` while returning the canonical Blocks Engine result envelope directly.
-
 ## Public API
 
-Load BAC through Composer autoloading, the WordPress plugin entrypoint, or `library.php` before calling the public functions:
+Load BAC through Composer autoloading, the WordPress plugin entrypoint, or `library.php`:
 
 ```php
 require_once __DIR__ . '/library.php';
 ```
 
-The legacy `Block_Artifact_Compiler` class remains a public compatibility adapter. Consumers should prefer the same bootstrap paths above, but direct includes of `includes/class-block-artifact-compiler.php` also load the delegated public functions and Composer dependencies before the adapter methods run.
+Then call the compatibility functions:
 
 ```php
 $result = bac_compile_website_artifact(
 	array(
-		'schema'         => 'block-artifact-compiler/website-artifact/v1',
-		'generated_html' => '<main><h1>Hello</h1></main>',
-		'css'            => 'main { max-width: 80rem; }',
-		'entrypoints'    => array( 'index.html' ),
 		'files' => array(
-			array(
-				'path'    => 'site.js',
-				'content' => 'console.log("preview behavior");',
-				'role'    => 'script',
-				'intent'  => 'behavior',
-			),
-			array(
-				'path'           => 'assets/logo.png',
-				'content_base64' => '...',
-				'mime_type'      => 'image/png',
-				'role'           => 'brand-asset',
-			),
+			'index.html' => '<main><h1>Hello</h1></main>',
 		),
 	)
 );
+
+$fragment = bac_compile_fragment( $html, 'main:index.html', 'html', $options );
 ```
 
-Result shape:
+Both functions return the canonical Blocks Engine result envelope directly. The expected schema is:
 
 ```php
 array(
-	'schema'              => 'block-artifact-compiler/result/v1',
-	'status'              => 'success',
-	'input'               => array(...),
-	'wordpress_artifacts' => array(
-		'block_markup' => '<!-- wp:paragraph -->...',
-		'blocks'       => array(),
-		'site'         => array(
-			'schema'         => 'block-artifact-compiler/compiled-site/v1',
-			'pages'          => array(
-				array(
-					'source_path'         => 'website/menu.html',
-					'route_key'           => 'menu',
-					'route_keys'          => array( 'website/menu.html', 'menu.html', 'menu', '/menu/' ),
-					'route_path'          => 'menu',
-					'permalink_path'      => '/menu/',
-					'link_rewrite_keys'   => array( 'website/menu.html', 'menu.html', 'menu', '/menu/' ),
-					'link_rewrite_target' => '/menu/',
-					'slug'                => 'menu',
-					'canonical_slug'      => 'menu',
-					'post_type'           => 'page',
-					'status'              => 'publish',
-					'post_status'         => 'publish',
-					'title'               => 'Menu',
-					'entrypoint'          => false,
-					'front_page'          => false,
-					'artifact'            => 'wordpress_artifacts.documents',
-				),
-			),
-			'front_page'     => array(...),
-			'route_map'      => array(
-				'menu.html' => 'menu',
-			),
-			'link_rewrite_map' => array(
-				'menu.html' => array(
-					'route_key'   => 'menu',
-					'target_path' => '/menu/',
-				),
-			),
-			'shared_regions' => array(
-				array(
-					'role'           => 'header',
-					'source_paths'   => array( 'website/index.html', 'website/menu.html' ),
-					'source_hash'    => '...',
-					'source_excerpt' => '<header>...</header>',
-				),
-			),
-			'theme_assets'   => array(
-				'styles'  => array(),
-				'scripts' => array(),
-			),
-			'provenance'     => array(...),
-		),
-		'documents'    => array(
-			array(
-				'source_path'         => 'website/menu.html',
-				'kind'                => 'html',
-				'post_type'           => 'page',
-				'post_status'         => 'publish',
-				'status'              => 'publish',
-				'slug'                => 'menu',
-				'canonical_slug'      => 'menu',
-				'title'               => 'Menu',
-				'route_key'           => 'menu',
-				'route_keys'          => array( 'website/menu.html', 'menu.html', 'menu', '/menu/' ),
-				'route_path'          => 'menu',
-				'permalink_path'      => '/menu/',
-				'link_rewrite_keys'   => array( 'website/menu.html', 'menu.html', 'menu', '/menu/' ),
-				'link_rewrite_target' => '/menu/',
-				'entrypoint'          => false,
-				'front_page'          => false,
-				'metadata'            => array(...),
-				'route'               => array(...),
-				'page_identity'       => array(...),
-				'document_metadata' => array(...),
-				'block_markup'      => '<!-- wp:paragraph -->...',
-				'provenance'        => array(...),
-			),
-		),
-		'block_types'  => array(
-			array(
-				'schema'          => 'chubes4/wordpress-block-type-artifact/v1',
-				'name'            => 'acme/hero',
-				'slug'            => 'hero',
-				'directory'       => 'blocks/hero',
-				'block_json_path' => 'blocks/hero/block.json',
-				'block_json'      => array(...),
-				'metadata'        => array(
-					'apiVersion' => 3,
-					'title'      => 'Hero',
-					'category'   => 'design',
-					'attributes' => array(...),
-					'supports'   => array(...),
-				),
-				'assets'          => array(
-					'render'        => array(),
-					'editor_script' => array(),
-					'script'        => array(),
-					'view_script'   => array(),
-					'editor_style'  => array(),
-					'style'         => array(),
-					'view_style'    => array(),
-				),
-				'dependencies'    => array(
-					'declared'    => array(...),
-					'asset_files' => array(),
-				),
-				'provenance'      => array(
-					'source'      => 'files',
-					'source_hash' => '...',
-					'files'       => array(...),
-				),
-				'files'           => array(),
-			),
-		),
-		'plugins'      => array(
-			array(
-				'schema'      => 'chubes4/wordpress-plugin-artifact/v1',
-				'slug'        => 'acme-blocks',
-				'directory'   => 'plugins/acme-blocks',
-				'plugin_file' => 'plugins/acme-blocks/acme-blocks.php',
-				'headers'     => array(
-					'name'         => 'Acme Blocks',
-					'version'      => '0.1.0',
-					'requires_php' => '8.1',
-				),
-				'blocks'      => array(
-					array(
-						'name'            => 'acme/hero',
-						'directory'       => 'plugins/acme-blocks/blocks/hero',
-						'block_json_path' => 'plugins/acme-blocks/blocks/hero/block.json',
-					),
-				),
-				'provenance'  => array(...),
-				'files'       => array(...),
-			),
-		),
-		'requirements' => array(
-			'plugins'       => array(
-				array(
-					'slug'        => 'acme-blocks',
-					'plugin_file' => 'plugins/acme-blocks/acme-blocks.php',
-					'source'      => 'plugin_artifact',
-					'status'      => 'provided',
-				),
-			),
-			'custom_blocks' => array(
-				array(
-					'name'      => 'acme/hero',
-					'namespace' => 'acme',
-					'source'    => 'block_json',
-					'status'    => 'provided',
-				),
-				array(
-					'name'      => 'vendor/card',
-					'namespace' => 'vendor',
-					'source'    => 'block_markup',
-					'status'    => 'external',
-				),
-			),
-		),
-		'components'   => array(),
-		'files'        => array(),
-	),
-	'provenance'          => array(...),
-	'diagnostics'         => array(),
-	'bfb_report'          => array(),
+	'schema' => 'blocks-engine/php-transformer/result/v1',
+	// Remaining keys are owned by Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler.
 )
 ```
 
-For fragment conversion callers such as Static Site Importer:
-
-```php
-$compiled = bac_compile_fragment( $html, 'main:index.html', 'html', $options );
-$summary  = bac_summarize_result( $compiled );
-$markup   = $compiled['wordpress_artifacts']['block_markup'];
-```
-
-`bac_compile_fragment()` is the compiler-facing fragment envelope for supported source formats. Callers should pass `html`, `markdown`, or `blocks` instead of bypassing BAC to call BFB directly. BAC normalizes diagnostics, provenance, block tree reporting, and the optional BFB report around those conversions.
-
-When BFB is unavailable and conversion is required, the default result status is `failed` with a `bfb_unavailable` error diagnostic. Standalone smoke tests may opt into preservation fallback explicitly:
-
-```php
-$compiled = bac_compile_fragment(
-	$markdown,
-	'content/about.md',
-	'markdown',
-	array( 'allow_bfb_unavailable_fallback' => true )
-);
-```
-
-That fallback mode is not production conversion. It preserves source content as `core/html` and reports `bfb_unavailable_fallback` so downstream importers cannot mistake it for native conversion.
-
 ## Boundaries
 
-Block Artifact Compiler does not orchestrate agents, import WordPress sites, or deploy outputs.
+Block Artifact Compiler does not orchestrate agents, import WordPress sites, deploy outputs, summarize reports, define artifact schemas, or maintain a second compiler contract.
 
 - Studio Web owns product orchestration, review, preview, and push flows.
 - Static Site Importer owns WordPress import and materialization.
-- Blocks Engine PHP transformer owns generic artifact compilation and low-level HTML-to-known-block transforms.
-- Block Format Bridge owns compatibility format-to-block conversion APIs for older consumers.
+- Blocks Engine PHP transformer owns artifact compilation and result envelopes.
 
-## Smoke Test
+## Test
 
 ```bash
 composer test
-```
-
-## Homeboy Test
-
-```bash
-homeboy test --path /path/to/block-artifact-compiler
 ```
