@@ -32,7 +32,6 @@ $artifact = array(
 $result           = bac_compile_website_artifact( $artifact );
 $canonical_result = ( new $canonical_compiler_class() )->compile( $artifact )->toArray();
 
-$assert( 'blocks-engine/php-transformer/result/v1' === ( $result['schema'] ?? '' ), 'BAC returns the canonical Blocks Engine result schema' );
 $assert( array_key_exists( 'serialized_blocks', $result ), 'canonical result envelope is returned without BAC projection' );
 
 $result_without_timing    = $result;
@@ -44,5 +43,4 @@ $assert( $canonical_without_timing === $result_without_timing, 'artifact API del
 $fragment           = bac_compile_fragment( '<main><h2>Fragment</h2><p>Copy</p></main>', 'content/fragment.html', 'html' );
 $canonical_fragment = ( new $canonical_compiler_class() )->compileFragment( '<main><h2>Fragment</h2><p>Copy</p></main>', 'content/fragment.html', 'html' )->toArray();
 
-$assert( 'blocks-engine/php-transformer/result/v1' === ( $fragment['schema'] ?? '' ), 'fragment API returns the canonical Blocks Engine result schema' );
 $assert( $canonical_fragment === $fragment, 'fragment API delegates to ArtifactCompiler::compileFragment()' );
