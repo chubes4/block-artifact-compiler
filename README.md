@@ -64,11 +64,11 @@ Plugin artifacts follow the same rule. BAC detects WordPress plugin headers, pre
 
 ## Blocks Engine Transformer Wrapper
 
-BAC is a thin compatibility layer over the canonical Blocks Engine PHP transformer. It delegates to the active `blocks_engine_php_transformer_compile_artifact()` plugin helper when present, or to `Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler` when the class is available through Composer autoloading.
+BAC is a thin compatibility layer over the canonical Blocks Engine PHP transformer. It delegates to `Automattic\BlocksEngine\PhpTransformer\ArtifactCompiler\ArtifactCompiler` through Composer autoloading.
 
-The Composer configuration uses the local Blocks Engine `php-transformer` path repository for development and tests; it does not depend on a Packagist release. If neither the plugin helper nor canonical class is available, BAC returns a failed BAC-shaped envelope with a dependency diagnostic instead of compiling through the removed local compiler implementation.
+The Composer configuration pins the Blocks Engine PHP transformer source used for development and tests; it does not depend on a Packagist release.
 
-The wrapper preserves BAC-owned API compatibility for `bac_compile_website_artifact()`, `bac_compile_fragment()`, and `bac_summarize_result()`. `bac_compile_fragment( ..., 'blocks' )` still routes serialized block fragments through an HTML-like artifact entry path so existing consumers receive canonical serialized block markup directly.
+The wrapper preserves BAC-owned API compatibility for `bac_compile_website_artifact()`, `bac_compile_fragment()`, and `bac_summarize_result()` while returning the canonical Blocks Engine result envelope directly.
 
 ## Public API
 
