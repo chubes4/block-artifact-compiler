@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Block Artifact Compiler
- * Description: Compiles website artifacts into WordPress-native block artifact bundles.
+ * Description: Legacy BAC function facade over Blocks Engine PHP Transformer artifact compilation.
  * Version: 0.1.2
  * Author: Chris Huber
  * License: GPL-2.0-or-later

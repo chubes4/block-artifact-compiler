@@ -1,6 +1,6 @@
 {
   "name": "chubes4/block-artifact-compiler",
-  "description": "Compile website artifacts into WordPress-native block artifact bundles.",
+  "description": "Legacy BAC function facade over Blocks Engine PHP Transformer artifact compilation.",
   "type": "wordpress-plugin",
   "license": "GPL-2.0-or-later",
   "autoload": {
@@ -42,9 +42,7 @@
     ]
   },
   "require": {
-    "php": ">=8.1"
-  },
-  "require-dev": {
+    "php": ">=8.1",
     "automattic/blocks-engine-php-transformer": "dev-trunk"
   },
   "config": {

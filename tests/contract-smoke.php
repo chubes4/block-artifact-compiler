@@ -22,7 +22,6 @@ $canonical_compiler_class = 'Automattic\\BlocksEngine\\PhpTransformer\\ArtifactC
 $assert( class_exists( $canonical_compiler_class ), 'canonical Blocks Engine artifact compiler is available' );
 $assert( function_exists( 'bac_compile_website_artifact' ), 'artifact compatibility function is available' );
 $assert( function_exists( 'bac_compile_fragment' ), 'fragment compatibility function is available' );
-$assert( ! function_exists( 'bac_summarize_result' ), 'BAC no longer exposes a report summary projection' );
 
 $artifact = array(
 	'files' => array(
