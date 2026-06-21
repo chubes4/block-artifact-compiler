@@ -37,7 +37,10 @@
     }
   ],
   "scripts": {
-    "test": "php tests/contract-smoke.php"
+    "test": [
+      "php tests/contract-smoke.php",
+      "php tests/direct-class-include.php"
+    ]
   },
   "require": {
     "php": ">=8.1"
