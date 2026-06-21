@@ -72,6 +72,14 @@ The wrapper preserves BAC-owned API compatibility for `bac_compile_website_artif
 
 ## Public API
 
+Load BAC through Composer autoloading, the WordPress plugin entrypoint, or `library.php` before calling the public functions:
+
+```php
+require_once __DIR__ . '/library.php';
+```
+
+The legacy `Block_Artifact_Compiler` class remains a public compatibility adapter. Consumers should prefer the same bootstrap paths above, but direct includes of `includes/class-block-artifact-compiler.php` also load the delegated public functions and Composer dependencies before the adapter methods run.
+
 ```php
 $result = bac_compile_website_artifact(
 	array(

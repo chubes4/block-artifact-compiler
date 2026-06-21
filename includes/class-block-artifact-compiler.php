@@ -5,6 +5,13 @@
  * @package BlockArtifactCompiler
  */
 
+$bac_autoload = dirname( __DIR__ ) . '/vendor/autoload.php';
+if ( file_exists( $bac_autoload ) ) {
+	require_once $bac_autoload;
+}
+
+require_once __DIR__ . '/functions.php';
+
 /**
  * Legacy method adapter for the public BAC compatibility functions.
  */
